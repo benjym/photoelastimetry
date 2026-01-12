@@ -477,7 +477,7 @@ if __name__ == "__main__":
 
     # Disk and load parameters
     R = 0.01  # Radius of the disk (m)
-    P = 2.0  # Total load per unit thickness (N/m)
+    P = 0.2  # Total load per unit thickness (N/m)
 
     with open("json/test.json5", "r") as f:
         params = json5.load(f)

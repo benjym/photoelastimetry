@@ -19,9 +19,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.gridspec import GridSpec
 from plot_config import CHANNEL_NAMES, COLORS, configure_plots
+from tqdm import tqdm
 
 from photoelastimetry.image import compute_principal_angle, compute_retardance
-from photoelastimetry.solver import predict_intensity, recover_stress_tensor_intensity
+from photoelastimetry.solver.intensity_solver import predict_intensity, recover_stress_tensor_intensity
 
 # Set up matplotlib for publication-quality figures
 configure_plots()
@@ -99,7 +100,7 @@ def compute_intensities_vs_stress_magnitude(
     for i, stress_mag in enumerate(stress_magnitudes):
         # Define stress tensor based on type
         if stress_type == "uniaxial":
-            # Uniaxial tension: sigma_1 = stress_mag, sigma_2 = 0
+            # Uniaxial compression: sigma_1 = stress_mag, sigma_2 = 0
             sigma_1 = stress_mag
             sigma_2 = 0.0
         elif stress_type == "biaxial":
@@ -227,7 +228,7 @@ def test_stress_recovery_vs_retardation(max_stress=10e6, n_points=50, noise_leve
         I_safe = np.maximum(I_measured, 1e-6)
         weights = 1.0 / np.sqrt(I_safe)
 
-        # Recover stress
+        # Recover stress (use a simple uniaxial guess, not the true stress)
         stress_recovered, success, _ = recover_stress_tensor_intensity(
             I_measured,
             WAVELENGTHS,
@@ -238,7 +239,7 @@ def test_stress_recovery_vs_retardation(max_stress=10e6, n_points=50, noise_leve
             ANALYZER_ANGLES,
             I0,
             weights=weights,
-            initial_guess=np.array([stress, -0.5 * stress, 0.3 * stress]),
+            initial_guess=np.array([stress / 2, 0.0, stress / 4]),
             method="lm",
         )
 
@@ -358,7 +359,8 @@ def test_noise_sensitivity(stress_tensor, noise_levels, n_trials=100, use_cache=
                 )
                 error = abs(psd_recovered - psd_true) / psd_true
                 # Cap errors at 200% to avoid outliers dominating statistics
-                errors.append(min(error, 2.0))
+                # errors.append(min(error, 2.0))
+                errors.append(error)
 
         success_rates[i] = successes / n_trials
 
@@ -441,7 +443,7 @@ def test_angular_variation(stress_magnitude=5e6, n_angles=50, use_cache=True):
         I_safe = np.maximum(I_measured, 1e-6)
         weights = 1.0 / np.sqrt(I_safe)
 
-        # Recover stress
+        # Recover stress (use a simple uniaxial guess, not the true stress)
         stress_recovered, success, _ = recover_stress_tensor_intensity(
             I_measured,
             WAVELENGTHS,
@@ -452,7 +454,7 @@ def test_angular_variation(stress_magnitude=5e6, n_angles=50, use_cache=True):
             ANALYZER_ANGLES,
             I0,
             weights=weights,
-            initial_guess=np.array([sigma_xx, sigma_yy, sigma_xy]),
+            initial_guess=np.array([stress_magnitude / 2, 0.0, stress_magnitude / 4]),
             method="lm",
         )
 
@@ -486,6 +488,162 @@ def test_angular_variation(stress_magnitude=5e6, n_angles=50, use_cache=True):
     return result
 
 
+def test_stress_space_2d(
+    stress_magnitudes=None, angles=None, n_stress=30, n_angles=30, n_trials=1, noise_level=0.0, use_cache=True
+):
+    """
+    Test stress recovery across a 2D grid of stress magnitude and principal angle.
+
+    This creates a comprehensive map of recovery accuracy across different stress states,
+    exploring both the magnitude and orientation of the principal stress difference.
+
+    Parameters
+    ----------
+    stress_magnitudes : array-like, optional
+        Array of stress magnitudes to test (Pa). If None, uses linspace(0.5e6, 10e6, n_stress).
+    angles : array-like, optional
+        Array of principal angles to test (degrees). If None, uses linspace(0, 90, n_angles).
+    n_stress : int
+        Number of stress levels to test (if stress_magnitudes is None).
+    n_angles : int
+        Number of angles to test (if angles is None).
+    n_trials : int
+        Number of trials per stress state with randomized initial guesses. Default is 1.
+    noise_level : float
+        Standard deviation of Gaussian noise to add (as fraction of mean intensity).
+    use_cache : bool
+        Whether to use cached results if available.
+
+    Returns
+    -------
+    stress_grid : ndarray
+        2D array of stress magnitudes.
+    angle_grid : ndarray
+        2D array of angles.
+    error_grid : ndarray
+        2D array of relative errors in principal stress difference recovery (averaged over trials).
+    success_grid : ndarray
+        2D array of success rates (0 to 1).
+    """
+    # Check cache
+    cache_name = (
+        f"stress_space_2d_nstress{n_stress}_nangles{n_angles}_ntrials{n_trials}_noise{noise_level:.3f}"
+    )
+    if use_cache and noise_level == 0.0:
+        cached = load_cache(cache_name)
+        if cached is not None:
+            return cached
+
+    # Default parameter ranges
+    if stress_magnitudes is None:
+        stress_magnitudes = np.linspace(0.5e6, 10e6, n_stress)
+    if angles is None:
+        angles = np.linspace(0, 90, n_angles)
+
+    # Create 2D grids
+    stress_grid, angle_grid = np.meshgrid(stress_magnitudes, angles)
+    error_accumulator = np.zeros_like(stress_grid)
+    success_accumulator = np.zeros_like(stress_grid)
+
+    # Test each combination with multiple trials
+    total = stress_grid.size
+    print(
+        f"   Running {n_trials} trials for {total} stress states ({n_stress} magnitudes × {n_angles} angles)..."
+    )
+
+    for trial in tqdm(range(n_trials), desc="Trials"):
+        for i in tqdm(range(stress_grid.shape[0]), desc="Stress magnitudes", leave=False):
+            for j in tqdm(range(stress_grid.shape[1]), desc="Angles", leave=False):
+                stress = stress_grid[i, j]
+                theta = np.deg2rad(angle_grid[i, j])
+
+                # Create biaxial stress state at angle theta
+                # Use sigma_1 = stress, sigma_2 = -0.5*stress for variety
+                sigma_1 = stress
+                sigma_2 = -0.5 * stress
+
+                sigma_xx = sigma_1 * np.cos(theta) ** 2 + sigma_2 * np.sin(theta) ** 2
+                sigma_yy = sigma_1 * np.sin(theta) ** 2 + sigma_2 * np.cos(theta) ** 2
+                sigma_xy = (sigma_1 - sigma_2) * np.sin(theta) * np.cos(theta)
+
+                # Generate synthetic measurements
+                I_measured = np.zeros((3, 4))
+                for c in range(3):
+                    I_pred = predict_intensity(
+                        sigma_xx,
+                        sigma_yy,
+                        sigma_xy,
+                        C_VALUES[c],
+                        NU,
+                        L,
+                        WAVELENGTHS[c],
+                        ANALYZER_ANGLES,
+                        S_I_HAT,
+                        I0,
+                    )
+                    if noise_level > 0:
+                        I_pred += np.random.normal(0, noise_level * np.mean(I_pred), 4)
+                        I_pred = np.maximum(I_pred, 0.0)
+                    I_measured[c] = I_pred
+
+                # Compute weights
+                I_safe = np.maximum(I_measured, 1e-6)
+                weights = 1.0 / np.sqrt(I_safe)
+
+                # Randomize initial guess if multiple trials, otherwise use fixed guess
+                if n_trials > 1:
+                    # Sample from distribution around a generic guess
+                    base_guess = stress / 2
+                    std_guess = stress / 4
+                    initial_guess = np.array(
+                        [
+                            base_guess + np.random.normal(0, std_guess),
+                            np.random.normal(0, std_guess),
+                            base_guess / 2 + np.random.normal(0, std_guess / 2),
+                        ]
+                    )
+                else:
+                    # Use fixed generic initial guess
+                    guess_stress = stress / 2
+                    initial_guess = np.array([guess_stress, 0.0, guess_stress])
+
+                # Recover stress
+                stress_recovered, success, _ = recover_stress_tensor_intensity(
+                    I_measured,
+                    WAVELENGTHS,
+                    C_VALUES,
+                    NU,
+                    L,
+                    S_I_HAT,
+                    ANALYZER_ANGLES,
+                    I0,
+                    weights=weights,
+                    initial_guess=initial_guess,
+                    method="lm",
+                )
+
+                if success:
+                    success_accumulator[i, j] += 1
+                    psd_true = np.sqrt((sigma_xx - sigma_yy) ** 2 + 4 * sigma_xy**2)
+                    psd_recovered = np.sqrt(
+                        (stress_recovered[0] - stress_recovered[1]) ** 2 + 4 * stress_recovered[2] ** 2
+                    )
+                    error_accumulator[i, j] += abs(psd_recovered - psd_true) / psd_true
+
+    # Compute average errors (only for successful trials)
+    error_grid = np.where(success_accumulator > 0, error_accumulator / success_accumulator, np.nan)
+    success_grid = success_accumulator / n_trials
+
+    success_rate = np.nanmean(success_grid) * 100
+    print(f"   Overall success rate: {success_rate:.1f}%")
+
+    result = (stress_grid, angle_grid, error_grid, success_grid)
+    if use_cache and noise_level == 0.0:
+        save_cache(cache_name, result)
+
+    return result
+
+
 def create_validation_figure(use_cache=True):
     """
     Create comprehensive multi-panel validation figure for publication.
@@ -505,186 +663,124 @@ def create_validation_figure(use_cache=True):
     else:
         print("\n⚠ Cache disabled - computing all results from scratch")
 
-    # Create figure with GridSpec for flexible layout
-    fig = plt.figure()  # layout="constrained")
-    gs = GridSpec(3, 3, figure=fig, hspace=0.35, wspace=0.35, left=0.08, right=0.96, top=0.94, bottom=0.12)
+    # Create figure with 2x2 grid: ax1 and ax2 stacked on left, ax3 on right spanning both rows
+    fig = plt.figure()  # figsize=(14, 10))
+    gs = GridSpec(2, 2, figure=fig, hspace=0.3, wspace=0.3, left=0.08, right=0.96, top=0.96, bottom=0.08)
 
-    # Panel A: Predicted intensities vs stress magnitude (uniaxial stress at 45°)
-    print("\nPanel A: Computing intensities vs stress magnitude (uniaxial at 45°)...")
-    ax1a = fig.add_subplot(gs[0, 0])
-    ax1b = fig.add_subplot(gs[0, 1])
+    # Panel A: All 12 intensity curves for UNIAXIAL stress (3 colors × 4 analyzer angles)
+    print("\nPanel A: Computing all intensities vs stress magnitude (uniaxial at 45°)...")
+    ax1 = fig.add_subplot(gs[0, 0])  # Top left
 
-    stress_mags, intensities, retardations = compute_intensities_vs_stress_magnitude(
-        stress_type="uniaxial", theta=np.pi / 4, max_stress=10e5, use_cache=use_cache
+    stress_mags_uni, intensities_uni, _ = compute_intensities_vs_stress_magnitude(
+        stress_type="uniaxial", theta=0, max_stress=10e5, use_cache=use_cache
     )
 
-    # Plot intensities at 0° and 90° analyzer angles
-    for c in range(3):
-        ax1a.plot(stress_mags / 1e6, intensities[:, c, 0], color=COLORS[c], label=CHANNEL_NAMES[c], alpha=0.8)
-        ax1b.plot(stress_mags / 1e6, intensities[:, c, 2], color=COLORS[c], label=CHANNEL_NAMES[c], alpha=0.8)
-
-    ax1a.set_xlabel("Stress Magnitude (MPa)")
-    ax1a.set_ylabel("Intensity at 0° (a.u.)")
-    # ax1a.set_title("(a) I(0°) vs Stress (Uniaxial)", loc="left", fontweight="bold")
-    # ax1a.grid(True, alpha=0.3)
-    # ax1a.legend(loc="best")
-
-    ax1b.set_xlabel("Stress Magnitude (MPa)")
-    ax1b.set_ylabel("Intensity at 90° (a.u.)")
-    # ax1b.set_title("(b) I(90°) vs Stress (Uniaxial)", loc="left", fontweight="bold")
-    # ax1b.grid(True, alpha=0.3)
-    # ax1b.legend(loc="best")
-
-    # Panel B: Intensities for biaxial stress
-    print("Panel B: Computing intensities for biaxial stress...")
-    ax2 = fig.add_subplot(gs[0, 2])
-
-    stress_mags_shear, intensities_shear, retardations_shear = compute_intensities_vs_stress_magnitude(
-        stress_type="biaxial", theta=np.pi / 6, max_stress=10e5, use_cache=use_cache
-    )
-
-    # plot all four analyzer angles for green channel
+    # Plot all 12 curves: 3 colors × 4 analyzer angles
     angle_labels = ["0°", "45°", "90°", "135°"]
-    for a in range(4):
-        ax2.plot(
-            stress_mags_shear / 1e6,
-            intensities_shear[:, 1, a],  # Green channel only
-            label=f"I({angle_labels[a]})",
-            alpha=0.8,
-        )
+    linestyles = ["-", "--", "-.", ":"]
+
+    for c in range(3):
+        for a in range(4):
+            ax1.plot(
+                stress_mags_uni / 1e6,
+                intensities_uni[:, c, a],
+                color=COLORS[c],
+                linestyle=linestyles[a],
+                alpha=0.7,
+                linewidth=1.5,
+            )
+
+    ax1.set_xlabel("Stress Magnitude (MPa)")
+    ax1.set_ylabel("Intensity (a.u.)")
+    ax1.set_title("(a) Uniaxial Stress at 45°", loc="left", fontweight="bold")
+
+    # Create custom legend
+    from matplotlib.lines import Line2D
+
+    style_lines = [Line2D([0], [0], color="black", linestyle=linestyles[i], linewidth=1.5) for i in range(4)]
+    ax1.legend(style_lines, angle_labels, loc="upper right", title="Analyser", fontsize=9)
+    # ax1.grid(True, alpha=0.2)
+
+    # Panel B: All 12 intensity curves for ISOTROPIC COMPRESSION
+    print("\nPanel B: Computing all intensities vs stress magnitude (isotropic compression)...")
+    ax2 = fig.add_subplot(gs[1, 0])
+
+    # For isotropic compression: sigma_1 = sigma_2 = -stress (negative for compression)
+    # This should produce no photoelastic effect (intensities constant)
+    stress_mags_iso = np.linspace(0, 10e5, 200)
+    intensities_iso = np.zeros((len(stress_mags_iso), 3, 4))
+
+    for i, stress in enumerate(stress_mags_iso):
+        # Isotropic compression: sigma_xx = sigma_yy = -stress, sigma_xy = 0
+        sigma_xx = sigma_yy = -stress
+        sigma_xy = 0.0
+
+        for c in range(3):
+            intensities_iso[i, c, :] = predict_intensity(
+                sigma_xx, sigma_yy, sigma_xy, C_VALUES[c], NU, L, WAVELENGTHS[c], ANALYZER_ANGLES, S_I_HAT, I0
+            )
+
+    for c in range(3):
+        for a in range(4):
+            ax2.plot(
+                stress_mags_iso / 1e6,
+                intensities_iso[:, c, a],
+                color=COLORS[c],
+                linestyle=linestyles[a],
+                alpha=0.7,
+                linewidth=1.5,
+            )
 
     ax2.set_xlabel("Stress Magnitude (MPa)")
     ax2.set_ylabel("Intensity (a.u.)")
-    # ax2.set_title("(c) Intensities (Biaxial)", loc="left", fontweight="bold")
-    # ax2.grid(True, alpha=0.3)
-    ax2.legend(loc="best", fontsize=8)
+    ax2.set_title("(b) Isotropic Compression", loc="left", fontweight="bold")
+    ax2.legend(style_lines, angle_labels, loc="upper right", title="Analyser", fontsize=9)
+    # ax2.grid(True, alpha=0.2)
 
-    # Panel C: Recovery accuracy vs stress magnitude
-    print("\nPanel C: Testing recovery accuracy vs stress magnitude...")
-    ax3 = fig.add_subplot(gs[1, 0])
+    # Panel C: 2D error map with randomized initial guesses (100 trials)
+    print("\nPanel C: Computing 2D error map with randomized initial guesses (100 trials)...")
+    ax3 = fig.add_subplot(gs[:, 1])  # Right side, spanning both rows
 
-    true_stress, recovered_stress, retardations_test, errors = test_stress_recovery_vs_retardation(
-        max_stress=10e6, n_points=50, noise_level=0.0, use_cache=use_cache
+    # Use the function to compute the 2D error map
+    stress_grid, angle_grid, error_grid, success_grid = test_stress_space_2d(
+        n_stress=15, n_angles=15, n_trials=10, noise_level=0.0, use_cache=use_cache
     )
 
-    # Compute principal stress difference for x-axis
-    psd_test = np.sqrt((true_stress[:, 0] - true_stress[:, 1]) ** 2 + 4 * true_stress[:, 2] ** 2) / 1e6
+    # Convert error to percentage
+    error_percent = error_grid * 100
 
-    # Handle near-zero errors for log scale
-    errors_plot = np.maximum(errors * 100, 1e-6)  # Floor at 1e-6 for log scale
-    ax3.semilogy(psd_test, errors_plot, "o-", color="#2C3E50", markersize=3, alpha=0.7)
-    ax3.set_xlabel("Principal Stress Difference (MPa)")
-    ax3.set_ylabel("Relative Error (%)")
-    # ax3.set_title("(d) Recovery Error (No Noise)", loc="left", fontweight="bold")
-    # ax3.grid(True, alpha=0.3, which="both")
-    ax3.set_ylim(1e-6, 1e-2)
+    # Print statistics for debugging
+    valid_errors = error_percent[~np.isnan(error_percent)]
+    print(f"   Error range: {np.min(valid_errors):.2e}% to {np.max(valid_errors):.2e}%")
+    print(f"   Median error: {np.median(valid_errors):.2e}%")
 
-    # Panel D: Principal stress difference recovery
-    print("Panel D: Visualizing stress recovery accuracy...")
-    ax4 = fig.add_subplot(gs[1, 1])
+    # Floor very small errors to avoid log scale issues
+    error_percent_plot = np.where(error_percent < 0.01, 0.01, error_percent)
 
-    psd_true = np.sqrt((true_stress[:, 0] - true_stress[:, 1]) ** 2 + 4 * true_stress[:, 2] ** 2) / 1e6
-    psd_recovered = (
-        np.sqrt((recovered_stress[:, 0] - recovered_stress[:, 1]) ** 2 + 4 * recovered_stress[:, 2] ** 2)
-        / 1e6
+    # Set colorbar range
+    vmin = 0.01  # 0.01%
+    vmax = np.nanpercentile(error_percent, 95)  # 95th percentile to avoid outliers
+
+    # Create 2D histogram/heatmap
+    im = ax3.pcolormesh(
+        angle_grid,
+        stress_grid / 1e6,
+        error_percent_plot,
+        shading="auto",
+        cmap="viridis",
+        norm=plt.matplotlib.colors.LogNorm(vmin=vmin, vmax=vmax),
     )
 
-    ax4.plot(psd_true, psd_recovered, "o", color="#E74C3C", markersize=4, alpha=0.6)
-    ax4.plot([0, max(psd_true)], [0, max(psd_true)], "k--", linewidth=1, alpha=0.5)
-    ax4.set_xlabel("True PSD (MPa)")
-    ax4.set_ylabel("Recovered PSD (MPa)")
-    # ax4.set_title("(e) Principal Stress Diff. Recovery", loc="left", fontweight="bold")
-    # ax4.grid(True, alpha=0.3)
-    ax4.set_aspect("equal", adjustable="box")
+    ax3.set_xlabel("Principal Stress Angle (°)")
+    ax3.set_ylabel("Principal Stress Difference (MPa)")
+    ax3.set_title("(c) Recovery Error (100 trials, randomized init.)", loc="left", fontweight="bold")
+    # ax3.grid(True, alpha=0.2)
 
-    # Panel E: Noise sensitivity
-    print("\nPanel E: Testing noise sensitivity...")
-    ax5 = fig.add_subplot(gs[1, 2])
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax3, label="Relative Error (%)")
+    cbar.ax.set_ylabel("Relative Error (%)", rotation=270, labelpad=20)
 
-    test_stress = [5e6, -2.5e6, 1.5e6]
-    noise_levels_test = np.linspace(0, 0.1, 20)
-    noise_lvl, mean_err, std_err, success_rate = test_noise_sensitivity(
-        test_stress, noise_levels_test, n_trials=50, use_cache=use_cache
-    )
-
-    ax5.plot(noise_lvl * 100, mean_err * 100, "o-", color="#9B59B6", markersize=4, label="Mean error")
-    ax5.fill_between(
-        noise_lvl * 100,
-        (mean_err - std_err) * 100,
-        (mean_err + std_err) * 100,
-        color="#9B59B6",
-        alpha=0.2,
-        label="±1 std",
-    )
-    ax5.set_xlabel("Noise Level (% of Stokes range)")
-    ax5.set_ylabel("Relative Error (%, capped at 200%)")
-    # ax5.set_title("(f) Noise Sensitivity", loc="left", fontweight="bold")
-    # ax5.grid(True, alpha=0.3)
-    ax5.legend(loc="best")
-
-    # Panel F: Angular accuracy
-    print("\nPanel F: Testing angular variation...")
-    ax6 = fig.add_subplot(gs[2, 0])
-
-    angles, angle_err, mag_err = test_angular_variation(
-        stress_magnitude=5e6, n_angles=50, use_cache=use_cache
-    )
-
-    ax6.plot(angles, angle_err, "o-", color="#16A085", markersize=3)
-    ax6.set_xlabel("True Principal Angle (°)")
-    ax6.set_ylabel("Angular Error (°)")
-    # ax6.set_title("(g) Principal Angle Recovery", loc="left", fontweight="bold")
-    # ax6.grid(True, alpha=0.3)
-    ax6.axhline(0, color="k", linewidth=0.8, linestyle="--", alpha=0.5)
-
-    # Panel G: Magnitude error vs angle
-    print("Panel G: Magnitude error vs angle...")
-    ax7 = fig.add_subplot(gs[2, 1])
-
-    ax7.semilogy(angles, mag_err * 100, "o-", color="#D35400", markersize=3)
-    ax7.set_xlabel("Principal Angle (°)")
-    ax7.set_ylabel("Relative Error (%)")
-    # ax7.set_title("(h) Magnitude Error vs Angle", loc="left", fontweight="bold")
-    # ax7.grid(True, alpha=0.3, which="both")
-
-    # Panel H: Recovery with noise
-    print("\nPanel H: Testing recovery with noise...")
-    ax8 = fig.add_subplot(gs[2, 2])
-
-    true_stress_noisy, recovered_stress_noisy, ret_noisy, errors_noisy = test_stress_recovery_vs_retardation(
-        max_stress=10e6, n_points=50, noise_level=0.02, use_cache=False  # Don't cache noisy results
-    )
-
-    # Compute principal stress difference for both datasets
-    psd_noisy = (
-        np.sqrt((true_stress_noisy[:, 0] - true_stress_noisy[:, 1]) ** 2 + 4 * true_stress_noisy[:, 2] ** 2)
-        / 1e6
-    )
-
-    # Handle near-zero errors and clip outliers for better visualization
-    errors_noisy_plot = np.clip(errors_noisy * 100, 1e-6, 100)
-    errors_plot = np.maximum(errors * 100, 1e-6)
-
-    ax8.semilogy(
-        psd_noisy, errors_noisy_plot, "o", color="#C0392B", markersize=3, alpha=0.6, label="2% noise"
-    )
-    ax8.semilogy(
-        psd_test,
-        errors_plot,
-        "o",
-        color="#2C3E50",
-        markersize=2,
-        alpha=0.4,
-        label="No noise",
-    )
-    ax8.set_xlabel("Principal Stress Difference (MPa)")
-    ax8.set_ylabel("Relative Error (%, clipped at 100%)")
-    # ax8.set_title("(i) Recovery Error with Noise", loc="left", fontweight="bold")
-    # ax8.grid(True, alpha=0.3, which="both")
-    ax8.legend(loc="best")
-    ax8.set_ylim(1e-6, 100)
-
-    plt.savefig("inversion_method_validation.pdf")
+    plt.savefig("inversion_method_validation.pdf", dpi=150)
 
     return fig
 

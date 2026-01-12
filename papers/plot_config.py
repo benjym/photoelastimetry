@@ -13,14 +13,15 @@ import matplotlib.pyplot as plt
 PLOT_PARAMS = {
     "figure.figsize": (6.04, 4.0),  # IOP textwidth aspect ratio
     "font.size": 10,
-    "font.family": "sans-serif",
+    "font.family": "serif",
+    "font.serif": ["Times New Roman"],
     "axes.labelsize": 10,
-    "axes.titlesize": 11,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "legend.fontsize": 9,
+    "axes.titlesize": 10,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 10,
     "figure.titlesize": 12,
-    "lines.linewidth": 1.5,
+    "lines.linewidth": 1,
     "lines.markersize": 4,
 }
 
