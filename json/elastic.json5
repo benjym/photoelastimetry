@@ -1,0 +1,13 @@
+{
+    // Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat]
+    S_i_hat : [1.0, 0.0, 0.0], // Incoming polarization state
+    binning: 8,
+    wavelengths : [650, 550, 450], // R, G, B wavelengths (nm)
+    C : [3e-9, 3e-9, 3e-9], // stress-optic coefficient for each wavelength (1/Pa)
+    thickness : 0.01, // thickness of sample in m
+    polarisation_efficiency : 0.95,
+    input_filename : "images/elastic/boussinesq_synthetic_images.tiff",
+    output_filename : "images/elastic/predicted_stress_map.tiff",
+    debug: false,
+    solver: "stokes"
+}
