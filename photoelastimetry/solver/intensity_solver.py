@@ -19,7 +19,13 @@ import numpy as np
 from scipy.optimize import least_squares, minimize
 from tqdm import tqdm
 
-from photoelastimetry.image import compute_principal_angle, compute_retardance, mueller_matrix
+from photoelastimetry.image import (
+    compute_normalized_stokes,
+    compute_principal_angle,
+    compute_retardance,
+    compute_stokes_components,
+    mueller_matrix,
+)
 
 
 def predict_intensity(
@@ -265,11 +271,7 @@ def recover_stress_tensor_intensity(
     # Compute initial guess from Stokes-based method if not provided
     if initial_guess is None:
         # Quick estimate: compute Stokes and use closed-form estimate
-        from photoelastimetry.solver.stokes_solver import (
-            compute_normalized_stokes,
-            compute_stokes_components,
-            recover_stress_tensor,
-        )
+        from photoelastimetry.solver.stokes_solver import recover_stress_tensor
 
         S_m_hat = np.zeros((len(wavelengths), 2))
 

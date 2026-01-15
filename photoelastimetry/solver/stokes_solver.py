@@ -10,63 +10,13 @@ import numpy as np
 from scipy.optimize import differential_evolution, minimize
 from tqdm import tqdm
 
-from photoelastimetry.image import compute_principal_angle, compute_retardance, mueller_matrix
-
-
-def compute_stokes_components(I_0, I_45, I_90, I_135):
-    """
-    Compute the Stokes vector components (S0, S1, S2) from intensity measurements.
-
-    Parameters
-    ----------
-    I_0 : array-like
-        Intensity at polarizer angle 0 degrees.
-    I_45 : array-like
-        Intensity at polarizer angle 45 degrees.
-    I_90 : array-like
-        Intensity at polarizer angle 90 degrees.
-    I_135 : array-like
-        Intensity at polarizer angle 135 degrees.
-
-    Returns
-    -------
-    S0 : array-like
-        Total intensity (sum of orthogonal components).
-    S1 : array-like
-        Linear polarisation along 0-90 degrees.
-    S2 : array-like
-        Linear polarisation along 45-135 degrees.
-    """
-    S0 = I_0 + I_90
-    S1 = I_0 - I_90
-    S2 = I_45 - I_135
-    return S0, S1, S2
-
-
-def compute_normalized_stokes(S0, S1, S2):
-    """
-    Compute normalized Stokes vector components.
-
-    Parameters
-    ----------
-    S0 : array-like
-        Total intensity Stokes parameter.
-    S1 : array-like
-        First linear polarisation Stokes parameter.
-    S2 : array-like
-        Second linear polarisation Stokes parameter.
-
-    Returns
-    -------
-    S1_hat : array-like
-        Normalized S1 component (S1/S0).
-    S2_hat : array-like
-        Normalized S2 component (S2/S0).
-    """
-    S0_safe = np.where(S0 == 0, 1e-10, S0)
-    S1_hat = S1 / S0_safe
-    S2_hat = S2 / S0_safe
-    return S1_hat, S2_hat
+from photoelastimetry.image import (
+    compute_normalized_stokes,
+    compute_principal_angle,
+    compute_retardance,
+    compute_stokes_components,
+    mueller_matrix,
+)
 
 
 def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):

@@ -4,83 +4,14 @@ import numpy as np
 from matplotlib.colors import LogNorm, SymLogNorm
 from tqdm import tqdm
 
-import photoelastimetry.solver.stokes_solver as local
+from photoelastimetry.image import (
+    compute_normalized_stokes,
+    compute_stokes_components,
+    simulate_four_step_polarimetry,
+)
 from photoelastimetry.plotting import virino
 
 virino_cmap = virino()
-
-
-def simulate_four_step_polarimetry(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat, I0=1.0):
-    """
-    Simulate four-step polarimetry using Mueller matrix formalism.
-
-    This is consistent with the approach in local.py and uses proper Mueller matrix
-    calculus to predict intensities from stress tensor.
-
-    Parameters
-    ----------
-    sigma_xx : float or array-like
-        Normal stress component in x direction (Pa).
-    sigma_yy : float or array-like
-        Normal stress component in y direction (Pa).
-    sigma_xy : float or array-like
-        Shear stress component (Pa).
-    C : float
-        Stress-optic coefficient (1/Pa).
-    nu : float
-        Solid fraction (use 1.0 for solid samples).
-    L : float
-        Sample thickness (m).
-    wavelength : float
-        Wavelength of light (m).
-    S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
-    I0 : float
-        Incident light intensity (default: 1.0).
-
-    Returns
-    -------
-    Four intensity images for analyzer angles 0°, 45°, 90°, 135°
-    """
-    # Compute retardance and principal angle from stress tensor
-    theta = local.compute_principal_angle(sigma_xx, sigma_yy, sigma_xy)
-    delta = local.compute_retardance(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength)
-
-    # Get Mueller matrix
-    M = local.mueller_matrix(theta, delta)
-
-    # Create full incoming Stokes vector
-    S_i_hat = np.asarray(S_i_hat)
-    if len(S_i_hat) == 2:
-        # Backward compatibility: assume S3 = 0 (no circular polarization)
-        S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
-    elif len(S_i_hat) == 3:
-        # Use provided circular component
-        S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
-    else:
-        raise ValueError(f"S_i_hat must have 2 or 3 elements, got {len(S_i_hat)}")
-
-    # Apply Mueller matrix to get output Stokes vector
-    if M.ndim == 2:
-        # Single pixel case
-        S_out = M @ S_i_full
-    else:
-        # Array case - need to handle broadcasting
-        S_out = np.einsum("...ij,j->...i", M, S_i_full)
-
-    # Extract S0, S1, S2 from output
-    S0_out = S_out[..., 0] if S_out.ndim > 1 else S_out[0]
-    S1_out = S_out[..., 1] if S_out.ndim > 1 else S_out[1]
-    S2_out = S_out[..., 2] if S_out.ndim > 1 else S_out[2]
-
-    # Compute intensities for four analyzer angles
-    # I(α) = (S0 + S1*cos(2α) + S2*sin(2α)) / 2
-    I0_pol = I0 * (S0_out + S1_out) / 2  # α = 0°
-    I45_pol = I0 * (S0_out + S2_out) / 2  # α = 45°
-    I90_pol = I0 * (S0_out - S1_out) / 2  # α = 90°
-    I135_pol = I0 * (S0_out - S2_out) / 2  # α = 135°
-
-    return I0_pol, I45_pol, I90_pol, I135_pol
 
 
 # Standard Brazil test analytical solution
@@ -220,8 +151,8 @@ def post_process_synthetic_data(
     )
 
     # Calculate Stokes parameters from polarimetry
-    S0, S1, S2 = local.compute_stokes_components(I0_pol, I45_pol, I90_pol, I135_pol)
-    S1_hat, S2_hat = local.compute_normalized_stokes(S0, S1, S2)
+    S0, S1, S2 = compute_stokes_components(I0_pol, I45_pol, I90_pol, I135_pol)
+    S1_hat, S2_hat = compute_normalized_stokes(S0, S1, S2)
 
     # Degree of linear polarization
     DoLP = np.sqrt(S1_hat**2 + S2_hat**2)
