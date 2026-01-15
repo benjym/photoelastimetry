@@ -7,9 +7,11 @@ from scipy.ndimage import gaussian_filter
 
 import photoelastimetry.io
 import photoelastimetry.plotting
-import photoelastimetry.solver.equilibrium_solver
+import photoelastimetry.solver.global_solver
 import photoelastimetry.solver.intensity_solver
 import photoelastimetry.solver.stokes_solver
+
+# import photoelastimetry.solver.equilibrium_solver
 
 
 def image_to_stress(params, output_filename=None):
@@ -125,8 +127,22 @@ def image_to_stress(params, output_filename=None):
             S_I_HAT,
             n_jobs=n_jobs,
         )
+    elif params.get("solver") == "global":
+        # Global solver specific logic
+        gs_params = params.get("global_solver", {})
+
+        boundary_mask = None
+        if "boundary_mask_file" in gs_params:
+            import tifffile
+
+            if os.path.exists(gs_params["boundary_mask_file"]):
+                boundary_mask = tifffile.imread(gs_params["boundary_mask_file"]) > 0
+
+        stress_map = photoelastimetry.solver.global_solver.recover_stress_global(
+            data, WAVELENGTHS, C_VALUES, NU, L, S_I_HAT, boundary_mask=boundary_mask, **gs_params
+        )
     else:
-        raise ValueError("Solver type not recognized. Use 'stokes', 'intensity', or 'equilibrium'.")
+        raise ValueError("Solver type not recognized. Use 'stokes', 'intensity', 'equilibrium', or 'global'.")
 
     if params.get("output_filename") is not None:
         output_filename = params["output_filename"]

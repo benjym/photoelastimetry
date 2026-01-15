@@ -6,8 +6,8 @@ function across the entire domain simultaneously. Unlike the local pixel-by-pixe
 method, this approach:
 
 1. Ensures mechanical equilibrium by construction (through Airy stress function)
-2. Enforces smoothness globally via regularization
-3. Avoids local minima by solving a single global optimization problem
+2. Enforces smoothness globally via regularisation
+3. Avoids local minima by solving a single global optimisation problem
 4. Provides more stable results by incorporating spatial coupling
 
 The Airy stress function φ(x,y) relates to stresses via:
@@ -28,117 +28,6 @@ from scipy.sparse.linalg import spsolve
 from tqdm import tqdm
 
 from photoelastimetry.solver import stokes_solver
-
-
-def build_finite_difference_operators(nx, ny, dx=1.0, dy=1.0):
-    """
-    Build sparse finite difference operators for computing derivatives.
-
-    Uses central differences for interior points and forward/backward
-    differences at boundaries.
-
-    Parameters
-    ----------
-    nx : int
-        Number of grid points in x direction.
-    ny : int
-        Number of grid points in y direction.
-    dx : float, optional
-        Grid spacing in x direction (default: 1.0).
-    dy : float, optional
-        Grid spacing in y direction (default: 1.0).
-
-    Returns
-    -------
-    D2x : scipy.sparse matrix
-        Second derivative operator in x direction (∂²/∂x²).
-    D2y : scipy.sparse matrix
-        Second derivative operator in y direction (∂²/∂y²).
-    Dxy : scipy.sparse matrix
-        Mixed derivative operator (∂²/∂x∂y).
-    L : scipy.sparse matrix
-        Laplacian operator (∇²).
-    """
-    from scipy.sparse import diags
-    from scipy.sparse import eye as speye
-    from scipy.sparse import kron
-
-    # 1D second derivative operator (central differences)
-    # [1, -2, 1] / dx^2
-    diag_1d = np.array([1.0, -2.0, 1.0])
-    offsets_1d = np.array([-1, 0, 1])
-
-    # Build 1D operators
-    D2_1d_x = diags(diag_1d, offsets_1d, shape=(nx, nx)) / dx**2
-    D2_1d_y = diags(diag_1d, offsets_1d, shape=(ny, ny)) / dy**2
-
-    # 2D operators using Kronecker products
-    # For a field organized as [φ(0,0), φ(1,0), ..., φ(nx-1,0), φ(0,1), ...]
-    I_x = speye(nx)
-    I_y = speye(ny)
-
-    # ∂²/∂x² operator
-    D2x = kron(I_y, D2_1d_x)
-
-    # ∂²/∂y² operator
-    D2y = kron(D2_1d_y, I_x)
-
-    # Mixed derivative ∂²/∂x∂y
-    # First derivative operators
-    diag_d1 = np.array([-0.5, 0.0, 0.5])
-    offsets_d1 = np.array([-1, 0, 1])
-
-    Dx_1d = diags(diag_d1, offsets_d1, shape=(nx, nx)) / dx
-    Dy_1d = diags(diag_d1, offsets_d1, shape=(ny, ny)) / dy
-
-    Dx = kron(I_y, Dx_1d)
-    Dy = kron(Dy_1d, I_x)
-
-    # Mixed derivative: ∂/∂x(∂/∂y)
-    Dxy = Dx @ Dy
-
-    # Laplacian (for regularization)
-    L = D2x + D2y
-
-    return D2x, D2y, Dxy, L
-
-
-def airy_to_stress(phi, D2x, D2y, Dxy):
-    """
-    Convert Airy stress function to stress components.
-
-    Parameters
-    ----------
-    phi : ndarray
-        Airy stress function values on grid (flattened or 2D).
-    D2x : scipy.sparse matrix
-        Second derivative operator in x direction.
-    D2y : scipy.sparse matrix
-        Second derivative operator in y direction.
-    Dxy : scipy.sparse matrix
-        Mixed derivative operator.
-
-    Returns
-    -------
-    sigma_xx : ndarray
-        Normal stress in x direction (same shape as phi).
-    sigma_yy : ndarray
-        Normal stress in y direction (same shape as phi).
-    sigma_xy : ndarray
-        Shear stress (same shape as phi).
-    """
-    phi_flat = phi.flatten()
-
-    # σ_xx = ∂²φ/∂y²
-    sigma_xx = D2y @ phi_flat
-
-    # σ_yy = ∂²φ/∂x²
-    sigma_yy = D2x @ phi_flat
-
-    # σ_xy = -∂²φ/∂x∂y
-    sigma_xy = -Dxy @ phi_flat
-
-    return sigma_xx, sigma_yy, sigma_xy
 
 
 def compute_global_residual(

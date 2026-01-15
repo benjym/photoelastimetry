@@ -1,0 +1,31 @@
+{
+    // Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat]
+    S_i_hat : [1.0, 0.0, 0.0], // Incoming polarization state
+    wavelengths : [650, 550, 450], // R, G, B wavelengths (nm)
+    C : [3e-9, 3e-9, 3e-9], // stress-optic coefficient for each wavelength (1/Pa)
+    thickness : 0.01, // thickness of sample in m
+
+    // Dataset info
+    input_filename : "images/test/disk_synthetic_images.tiff",
+
+    // Solver selection
+    solver: "global",
+
+    global_solver: {
+    // Global Solver Configuration
+        knot_spacing: 5,       // Distance between B-spline knots in pixels
+        spline_degree: 3,       // Degree of B-spline surfaces
+        regularization_weight: 2000.0, // Penalty for coefficient oscillation (higher = smoother)
+        boundary_weight: 1.0,   // Weight for boundary condition enforcement
+
+        // Optional: Mask file for boundary conditions
+        // boundary_mask_file: "path/to/mask.tif",
+
+        max_iterations: 100,
+        tolerance: 1e0
+    },
+
+    output_filename: "images/test/global_reconstruction.tiff",
+
+    debug: true
+}
