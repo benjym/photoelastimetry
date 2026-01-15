@@ -28,3 +28,9 @@ build/
 dist/
 *.egg
 .eggs/
+
+# Generated output files
+boussinesq_*.png
+brazil_test_*.png
+true_stress_difference.png
+images/
