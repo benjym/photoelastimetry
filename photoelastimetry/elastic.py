@@ -227,8 +227,9 @@ def generate_synthetic_boussinesq(
     theta_p[~mask] = np.nan
 
     height, width = sigma_xx.shape
+    n_wavelengths = len(wavelengths_nm)
 
-    synthetic_images = np.empty((height, width, 3, 4))  # RGB, 4 polarizer angles
+    synthetic_images = np.empty((height, width, n_wavelengths, 4))  # wavelengths, 4 polarizer angles
 
     # Use incoming light fully S1 polarized (standard setup)
     nu = 1.0  # Solid sample
@@ -616,7 +617,7 @@ if __name__ == "__main__":
     photoelastimetry.io.save_image("images/elastic/boussinesq_synthetic_stress.tiff", stress)
     photoelastimetry.io.save_image("images/elastic/boussinesq_synthetic_images.tiff", synthetic_images)
 
-    fig = plt.figure(figsize=(6, 4), layout="constrained")
+    plt.figure(figsize=(6, 4), layout="constrained")
     plt.imshow(principal_diff, norm=LogNorm())
     plt.colorbar(label="Principal Stress Difference (Pa)", orientation="vertical")
     plt.savefig("boussinesq_stress_difference.png")

@@ -20,7 +20,7 @@ from photoelastimetry.elastic import (
 def test_parameters():
     """Fixture providing standard test parameters."""
     return {
-        "wavelengths_nm": np.array([650e-9, 550e-9, 450e-9]),  # R, G, B in meters
+        "wavelengths_nm": np.array([650e-9, 550e-9, 450e-9]),  # R, G, B wavelengths in meters
         "C_values": np.array([2e-12, 2.2e-12, 2.5e-12]),  # Different C for each wavelength
         "nu": 1.0,  # Solid fraction
         "L": 0.01,  # Sample thickness (m)
