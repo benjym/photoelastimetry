@@ -172,10 +172,10 @@ class TestBoussinesqStressField:
         # Check that stress magnitudes are reasonable
         # For Boussinesq, stresses scale with P and decay with distance
         max_stress = np.max(np.abs(sigma_yy))
-        
+
         # Stress should be non-negligible
         assert max_stress > 0, "Maximum stress should be positive"
-        
+
         # Stress shouldn't be unreasonably large (order of magnitude check)
         # Near the load point, stress can be large, but should be bounded
         assert max_stress < 1e9, "Stress magnitude should be reasonable"
@@ -206,7 +206,16 @@ class TestSyntheticBoussinesqData:
 
         try:
             result = generate_synthetic_boussinesq(
-                X, Y, P, nu_poisson, S_i_hat, mask, wavelengths_nm, thickness, C_values, polarisation_efficiency
+                X,
+                Y,
+                P,
+                nu_poisson,
+                S_i_hat,
+                mask,
+                wavelengths_nm,
+                thickness,
+                C_values,
+                polarisation_efficiency,
             )
 
             synthetic_images, principal_diff, theta_p, sigma_xx, sigma_yy, tau_xy = result
