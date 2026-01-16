@@ -1,6 +1,6 @@
 site_name: Photoelastimetry
 site_description: Package for processing polarised images to measure stress in granular media
-site_author: Benjy Marks, Qianyu Fang
+site_author: Benjy Marks
 site_url: https://benjym.github.io/photoelastimetry/
 
 repo_name: benjym/photoelastimetry
@@ -87,5 +87,6 @@ nav:
           - solver: reference/solver.md
           - stokes_solver: reference/stokes_solver.md
           - intensity_solver: reference/intensity_solver.md
-          - equilibrium_solver: reference/equilibrium_solver.md
+          - global_solver: reference/global_solver.md
+  - Testing: testing.md
   - Contributing: contributing.md

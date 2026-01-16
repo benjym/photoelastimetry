@@ -136,3 +136,32 @@ class BSplineAiry:
         sigma_xy = self.dBy @ C @ self.dBx.T
 
         return sigma_xx, sigma_yy, sigma_xy
+
+    def project_stress_gradients(self, grad_s_xx, grad_s_yy, grad_s_xy):
+        """
+        Project stress field gradients back to B-spline coefficients.
+        This effectively computes d(Loss)/d(Coeffs) given d(Loss)/d(Stress).
+
+        Parameters
+        ----------
+        grad_s_xx, grad_s_yy, grad_s_xy : ndarray
+            Gradients of the loss with respect to stress fields. (ny, nx)
+
+        Returns
+        -------
+        grad_coeffs : ndarray
+            Gradient with respect to flattened coefficients.
+        """
+        # The stress field generation is linear: S = A @ C @ B.T
+        # The gradient backprop is: G_C = A.T @ G_S @ B
+
+        # Contributions from sigma_xx = ddBy @ C @ Bx.T
+        grad_C = self.ddBy.T @ grad_s_xx @ self.Bx
+
+        # Contributions from sigma_yy = By @ C @ ddBx.T
+        grad_C += self.By.T @ grad_s_yy @ self.ddBx
+
+        # Contributions from sigma_xy = dBy @ C @ dBx.T
+        grad_C += self.dBy.T @ grad_s_xy @ self.dBx
+
+        return grad_C.flatten()

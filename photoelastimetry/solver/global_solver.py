@@ -20,7 +20,12 @@ import numpy as np
 import scipy.optimize
 
 from photoelastimetry.bspline import BSplineAiry
-from photoelastimetry.image import compute_principal_angle, compute_retardance, mueller_matrix
+from photoelastimetry.image import (
+    compute_principal_angle,
+    compute_retardance,
+    mueller_matrix,
+    mueller_matrix_sensitivity,
+)
 
 
 def recover_stress_global(
@@ -84,9 +89,7 @@ def recover_stress_global(
 
     # Second derivative of B-spline scales with 1/knot_spacing^2
     # So we need coefficients to be stress * knot_spacing^2
-    # We add a small factor (e.g. 0.1) because average stress is lower than max
     COEFF_SCALE = estimated_stress * (knot_spacing**2)
-    # COEFF_SCALE = 1
 
     if verbose:
         print(f"Global Solver: Estimated max stress {estimated_stress:.2e} Pa (6 fringes).")
@@ -169,77 +172,194 @@ def recover_stress_global(
     iteration_count = [0]
 
     # Objective function
-    def objective(coeffs_flat):
+    def loss_and_gradient(coeffs_flat):
         iteration_count[0] += 1
+
         # 1. Get stresses
         # Apply scaling to keep optimization variables ~1
         s_xx, s_yy, s_xy = bspline.get_stress_fields(coeffs_flat * COEFF_SCALE)
 
-        # 2. Predict intensities
-        I_pred = forward_model(s_xx, s_yy, s_xy)
+        # Initialize accumulated stress gradients
+        grad_s_xx = np.zeros((H, W))
+        grad_s_yy = np.zeros((H, W))
+        grad_s_xy = np.zeros((H, W))
+        loss = 0.0
 
-        # 3. Residuals
-        # Weighted sum of squares
-        residuals = I_pred - image_stack
-        loss = np.nansum(residuals**2)
+        # Pre-calc geometry / stress invariants
+        diff = s_xx - s_yy
+        denom_sq = diff**2 + 4 * s_xy**2
+
+        # Safe math for derivatives (avoid singularity at 0 stress)
+        safe_mask = denom_sq > 1e-20
+        safe_denom_sq = np.ones_like(denom_sq)
+        safe_denom_sq[safe_mask] = denom_sq[safe_mask]
+
+        sqrt_D = np.sqrt(safe_denom_sq)
+        inv_denom = 1.0 / safe_denom_sq
+        inv_sqrt = 1.0 / sqrt_D
+
+        # Masked derivatives of Theta and Sqrt(D) w.r.t (diff, 2xy)
+        # theta = 0.5 * atan2(2xy, diff)
+        # dTheta/d(diff) = -0.5 * 2xy / D_sq = -xy/D_sq
+        # dTheta/d(2xy) = 0.5 * diff / D_sq
+
+        # D_sqrt = sqrt(diff^2 + (2xy)^2)
+        # dSqrt/d(diff) = diff / sqrt
+        # dSqrt/d(2xy) = 2xy / sqrt
+
+        dTheta_ddiff = -s_xy * inv_denom
+        dTheta_d2xy = 0.5 * diff * inv_denom
+
+        dSqrt_ddiff = diff * inv_sqrt
+        dSqrt_d2xy = 2 * s_xy * inv_sqrt
+
+        # Zero out gradients in singular regions
+        dTheta_ddiff[~safe_mask] = 0
+        dTheta_d2xy[~safe_mask] = 0
+        dSqrt_ddiff[~safe_mask] = 0
+        dSqrt_d2xy[~safe_mask] = 0
+
+        # Compute Theta (orientation) - shared across wavelengths
+        # Use simple atan2, it handles 0,0 correctly (returns 0)
+        theta = 0.5 * np.arctan2(2 * s_xy, diff)
+
+        # 2. Iterate wavelengths to build Loss and Gradients
+        for i, (wl, C) in enumerate(zip(wavelengths, C_values)):
+            # Retardance
+            K = 2 * np.pi * C * nu * L / wl
+            delta = K * sqrt_D  # Mask not needed for value, just gradient stability
+            if not np.all(safe_mask):
+                delta[~safe_mask] = 0  # Correct limit
+
+            # Forward Model
+            M = mueller_matrix(theta, delta)  # (H, W, 4, 4)
+            dM_dtheta, dM_ddelta = mueller_matrix_sensitivity(theta, delta)
+
+            # Incident Light S_in (4,) broadcast
+            # S_out = M @ S_in
+            S_out = np.einsum("...ij,j->...i", M, S_in)  # (H, W, 4)
+
+            # Sensitivity of S_out
+            dS_dTheta = np.einsum("...ij,j->...i", dM_dtheta, S_in)
+            dS_dDelta = np.einsum("...ij,j->...i", dM_ddelta, S_in)
+
+            # Analysers loop
+            for a in range(n_ang):
+                # I_pred = 0.5 * (S0 + S1 c + S2 s)
+                term = S_out[..., 0] + S_out[..., 1] * cos_2a[a] + S_out[..., 2] * sin_2a[a]
+                I_pred = 0.5 * term
+
+                # Residuals
+                obs = image_stack[:, :, i, a]
+                valid = ~np.isnan(obs)
+                resid = np.zeros_like(I_pred)
+                resid[valid] = I_pred[valid] - obs[valid]
+
+                loss += np.sum(resid**2)
+
+                # Gradients w.r.t I_pred
+                dL_dI = 2 * resid
+
+                # Partial derivatives of Intensity w.r.t Theta and Delta
+                dI_dTheta = 0.5 * (
+                    dS_dTheta[..., 0] + dS_dTheta[..., 1] * cos_2a[a] + dS_dTheta[..., 2] * sin_2a[a]
+                )
+                dI_dDelta = 0.5 * (
+                    dS_dDelta[..., 0] + dS_dDelta[..., 1] * cos_2a[a] + dS_dDelta[..., 2] * sin_2a[a]
+                )
+
+                # Chain rule back to Theta/Delta
+                dL_dTheta = dL_dI * dI_dTheta
+                dL_dDelta = dL_dI * dI_dDelta
+
+                # Chain rule back to Stress Components
+                # dL/ds_xx = dL/dTheta * dTheta/d_xx + dL/dDelta * dDelta/d_xx
+                # d_xx -> diff (+1)
+                # d_yy -> diff (-1)
+                # d_xy -> 2xy (2)
+
+                # Precompute shared terms
+                term_xx = dL_dTheta * dTheta_ddiff + dL_dDelta * (K * dSqrt_ddiff)
+                term_xy = dL_dTheta * dTheta_d2xy + dL_dDelta * (K * dSqrt_d2xy)
+
+                grad_s_xx += term_xx
+                grad_s_yy -= term_xx  # (diff depends on -s_yy)
+                grad_s_xy += term_xy * 2  # (2xy depends on 2*s_xy)
 
         # 4. Boundary penalty
         if boundary_mask is not None:
-            # Penalize stress magnitude in masked region
-            # Von Mises or just sum of squares of components
             stress_mag = s_xx**2 + s_yy**2 + 2 * s_xy**2
             bc_loss = np.sum(stress_mag[boundary_mask])
             loss += boundary_weight * bc_loss
 
-        # 5. Regularization (Smoothness via difference of adjacent coefficients)
-        if regularization_weight > 0:
-            # Reshape to 2D grid of coefficients
-            C_grid = coeffs_flat.reshape(bspline.n_coeffs_y, bspline.n_coeffs_x)
+            # Gradient
+            mask_w = boundary_mask.astype(float) * boundary_weight * 2
+            grad_s_xx += mask_w * s_xx
+            grad_s_yy += mask_w * s_yy
+            grad_s_xy += mask_w * 2 * s_xy  # from 2*s_xy^2 -> 4 s_xy
 
-            # Penalize rapid changes between adjacent control points
-            # This acts like a membrane energy minimization on the Airy function parameterization
+        # 5. Project Stress Gradients to Coeffs
+        grad_coeffs = bspline.project_stress_gradients(grad_s_xx, grad_s_yy, grad_s_xy)
+        grad_coeffs *= COEFF_SCALE
+
+        # 6. Regularization (Smoothness)
+        if regularization_weight > 0:
+            C_grid = coeffs_flat.reshape(bspline.n_coeffs_y, bspline.n_coeffs_x)
             diff_y = np.diff(C_grid, axis=0)
             diff_x = np.diff(C_grid, axis=1)
 
-            # Sum of squared differences
             reg_term = np.sum(diff_y**2) + np.sum(diff_x**2)
             loss += regularization_weight * reg_term
+
+            # Gradient of regularization
+            grad_reg_y = np.zeros_like(C_grid)
+            grad_reg_y[:-1, :] -= 2 * diff_y
+            grad_reg_y[1:, :] += 2 * diff_y
+
+            grad_reg_x = np.zeros_like(C_grid)
+            grad_reg_x[:, :-1] -= 2 * diff_x
+            grad_reg_x[:, 1:] += 2 * diff_x
+
+            grad_coeffs += regularization_weight * (grad_reg_y + grad_reg_x).flatten()
 
         if verbose and iteration_count[0] % 10 == 0:
             print(f"Iteration {iteration_count[0]}, Loss: {loss:.6e}", end="\r")
 
         if debug:
             # plot all intermediate results occaisionally
-            if iteration_count[0] % len(coeffs_flat) == 1:
-                import matplotlib.pyplot as plt
+            # if iteration_count[0] % 50 == 1:
+            import matplotlib.pyplot as plt
 
-                print(f"\nDebug Plot at iteration {iteration_count[0]}, Loss: {loss:.6e}")
-                plt.figure(0, figsize=(12, 4))
-                plt.clf()
-                for i, (s_field, label) in enumerate(
-                    zip([s_xx, s_yy, s_xy], ["Sigma_xx", "Sigma_yy", "Sigma_xy"])
-                ):
-                    plt.subplot(1, 3, i + 1)
-                    plt.imshow(s_field, cmap="viridis")
-                    plt.colorbar()
-                    plt.title(label)
-                plt.suptitle(f"Iteration {iteration_count[0]}, Loss: {loss:.6e}")
-                plt.tight_layout()
-                plt.pause(0.1)
+            print(f"\nDebug Plot at iteration {iteration_count[0]}, Loss: {loss:.6e}")
+            plt.figure(0, figsize=(12, 4))
+            plt.clf()
+            for i, (s_field, label) in enumerate(
+                zip([s_xx, s_yy, s_xy], ["Sigma_xx", "Sigma_yy", "Sigma_xy"])
+            ):
+                plt.subplot(1, 3, i + 1)
+                plt.imshow(s_field, cmap="viridis")
+                plt.colorbar()
+                plt.title(label)
+            plt.suptitle(f"Iteration {iteration_count[0]}, Loss: {loss:.6e}")
+            plt.tight_layout()
+            plt.pause(0.1)
 
-        return loss
+        return loss, grad_coeffs
 
     # Initialize with small random noise to avoid singularity at 0 stress
     # The gradient of sqrt(stress^2) is undefined at 0, which can cause L-BFGS-B to fail
-    # rng = np.random.default_rng(42)  # Fixed seed for reproducibility
-    # initial_coeffs = rng.normal(0, 1e-18, bspline.n_coeffs)
-    initial_coeffs = np.zeros(bspline.n_coeffs)
+    rng = np.random.default_rng(42)  # Fixed seed for reproducibility
+    # Start with noise ~0.1% of the expected stress range to ensure we are outside the singular region
+    # (Singularity protection threshold is stress^2 < 1e-20)
+    initial_coeffs = rng.normal(0, 1e-10, bspline.n_coeffs)
+    # initial_coeffs = np.zeros(bspline.n_coeffs)
 
     # Use L-BFGS-B
     res = scipy.optimize.minimize(
-        objective,
+        loss_and_gradient,
         initial_coeffs,
         method="L-BFGS-B",
+        jac=True,
         options={"maxiter": max_iterations, "ftol": tolerance, "disp": verbose},
     )
 

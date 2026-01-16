@@ -157,6 +157,67 @@ def mueller_matrix(theta, delta):
     return M
 
 
+def mueller_matrix_sensitivity(theta, delta):
+    """
+    Compute derivatives of Mueller matrix elements with respect to theta and delta.
+
+    Returns
+    -------
+    dM_dtheta : ndarray (..., 4, 4)
+    dM_ddelta : ndarray (..., 4, 4)
+    """
+    c2 = np.cos(2 * theta)
+    s2 = np.sin(2 * theta)
+    cd = np.cos(delta)
+    sd = np.sin(delta)
+
+    # Helper for 2*theta derivatives: d(c2)=-2s2, d(s2)=2c2
+    dc2 = -2 * s2
+    ds2 = 2 * c2
+
+    shape = np.broadcast(theta, delta).shape
+    dM_dtheta = np.zeros(shape + (4, 4))
+    dM_ddelta = np.zeros(shape + (4, 4))
+
+    # 0,0 is 1 -> derivs 0
+
+    # 1,1: c2^2 + s2^2*cd
+    dM_dtheta[..., 1, 1] = 2 * c2 * dc2 + 2 * s2 * ds2 * cd
+    dM_ddelta[..., 1, 1] = -(s2**2) * sd
+
+    # 1,2: c2*s2*(1-cd)
+    dM_dtheta[..., 1, 2] = (dc2 * s2 + c2 * ds2) * (1 - cd)
+    dM_ddelta[..., 1, 2] = c2 * s2 * sd
+
+    # 1,3: s2*sd
+    dM_dtheta[..., 1, 3] = ds2 * sd
+    dM_ddelta[..., 1, 3] = s2 * cd
+
+    # 2,1 = 1,2
+    dM_dtheta[..., 2, 1] = dM_dtheta[..., 1, 2]
+    dM_ddelta[..., 2, 1] = dM_ddelta[..., 1, 2]
+
+    # 2,2: c2^2*cd + s2^2
+    dM_dtheta[..., 2, 2] = (2 * c2 * dc2) * cd + 2 * s2 * ds2
+    dM_ddelta[..., 2, 2] = -(c2**2) * sd
+
+    # 2,3: -c2*sd
+    dM_dtheta[..., 2, 3] = -dc2 * sd
+    dM_ddelta[..., 2, 3] = -c2 * cd
+
+    # 3,1: 0
+
+    # 3,2: -s2*sd
+    dM_dtheta[..., 3, 2] = -ds2 * sd
+    dM_ddelta[..., 3, 2] = -s2 * cd
+
+    # 3,3: cd
+    dM_dtheta[..., 3, 3] = 0
+    dM_ddelta[..., 3, 3] = -sd
+
+    return dM_dtheta, dM_ddelta
+
+
 def compute_stokes_components(I_0, I_45, I_90, I_135):
     """
     Compute the Stokes vector components (S0, S1, S2) from intensity measurements.

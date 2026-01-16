@@ -11,7 +11,7 @@ tests/
 ├── __init__.py                       # Test package initialization
 ├── test_stokes_solver_pytest.py      # Stokes-based stress recovery tests
 ├── test_intensity_solver.py          # Intensity-based stress recovery tests
-├── test_equilibrium_solver.py        # Equilibrium-constrained recovery tests
+├── test_global_solver.py             # Global stress recovery tests
 ├── test_disk.py                      # Disk simulation and synthetic data tests
 ├── test_image_io.py                  # Image processing and I/O tests
 └── test_stokes_solver.py             # Legacy comprehensive tests (kept for reference)
@@ -57,25 +57,6 @@ Tests for raw intensity-based stress recovery:
 - Optimization methods (Levenberg-Marquardt, Trust Region)
 - Initial guess sensitivity
 - Bounds and constraints
-
-### Equilibrium Solver (`test_equilibrium_solver.py`)
-
-Tests for global equilibrium-constrained stress recovery:
-
-- **Finite Differences**: Second derivative operators for equilibrium
-- **Airy Stress Function**: Conversion to stress tensor
-- **Global Residual**: Combined data and equilibrium constraints
-- **Global Recovery**: Optimization with equilibrium enforcement
-- **Iterative Methods**: Progressive refinement strategies
-- **Local vs Global**: Comparison of pixel-wise vs field-based approaches
-- **Equilibrium Enforcement**: Mechanical consistency verification
-
-**Key Features Tested:**
-- Grid-based finite difference operators
-- Airy function properties (constant → zero stress)
-- Masked regions and boundaries
-- Smoothness regularization
-- Equilibrium equation satisfaction
 
 ### Disk Simulations (`test_disk.py`)
 
@@ -252,7 +233,7 @@ class TestNewFeature:
 
 Target coverage by module:
 
-- **Core solvers**: >80% (stokes_solver, intensity_solver, equilibrium_solver)
+- **Core solvers**: >80% (stokes_solver, intensity_solver, global_solver)
 - **Utilities**: >70% (image, io, plotting)
 - **Applications**: >60% (disk, main)
 - **Overall**: >70%

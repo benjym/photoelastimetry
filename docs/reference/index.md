@@ -17,7 +17,7 @@ The solver subpackage provides three complementary approaches for stress field r
 - [solver](solver.md) - Main solver module with high-level API
 - [solver.stokes_solver](stokes_solver.md) - Stokes-based pixel-wise inversion
 - [solver.intensity_solver](intensity_solver.md) - Intensity-based pixel-wise inversion
-- [solver.equilibrium_solver](equilibrium_solver.md) - Global equilibrium-based inversion
+- [solver.global_solver](global_solver.md) - Global equilibrium-based inversion
 
 ## Quick Links
 

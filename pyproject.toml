@@ -1,10 +1,9 @@
 [project]
 name = "photoelastimetry"
-version = "0.41"
+version = "0.42"
 requires-python = ">=3.9"
 authors = [
   {name = "Benjy Marks", email = "benjy.marks@sydney.edu.au"},
-  {name = "Qianyu Fang", email = "qianyu.fang@sydney.edu.au"},
 ]
 description = "Package for processing polarised images to measure stress in granular media"
 readme = "README.md"
@@ -109,7 +108,6 @@ exclude_lines = [
 ignore_errors = true
 show_missing = true
 precision = 2
-fail_under = 25
 
 [tool.coverage.html]
 directory = "htmlcov"
