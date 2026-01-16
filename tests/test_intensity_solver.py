@@ -13,7 +13,7 @@ from photoelastimetry.solver.intensity_solver import (
     compare_stokes_vs_intensity,
     compute_intensity_residual,
     predict_intensity,
-    recover_stress_map,
+    recover_stress_map_intensity,
     recover_stress_tensor_intensity,
 )
 
@@ -324,7 +324,7 @@ class TestStressMapIntensity:
 
         intensity_stack = np.random.rand(height, width, n_wavelengths, n_angles) * 0.5 + 0.5
 
-        stress_map, success_map = recover_stress_map(
+        stress_map, success_map = recover_stress_map_intensity(
             intensity_stack,
             test_parameters["wavelengths"],
             test_parameters["C_values"],

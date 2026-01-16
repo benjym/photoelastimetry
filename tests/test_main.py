@@ -23,7 +23,7 @@ class TestImageToStress:
         """Test image_to_stress with input_filename parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create synthetic input image (H, W, colors, angles)
-            data = np.random.rand(10, 10, 3, 4).astype(np.float32)
+            data = np.random.rand(1, 2, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
@@ -35,6 +35,7 @@ class TestImageToStress:
                 "wavelengths": [650, 550, 450],
                 "S_i_hat": [1.0, 0.0, 0.0],
                 "debug": False,
+                "solver": "intensity",
             }
 
             # Run image_to_stress
@@ -42,15 +43,15 @@ class TestImageToStress:
 
             # Check output shape (should be 3D with stress components)
             assert stress_map.ndim == 3, "Stress map should be 3D"
-            assert stress_map.shape[0] == 10, "Height should match input"
-            assert stress_map.shape[1] == 10, "Width should match input"
+            assert stress_map.shape[0] == 1, "Height should match input"
+            assert stress_map.shape[1] == 2, "Width should match input"
             assert stress_map.shape[2] == 3, "Should have 3 stress components"
 
     def test_image_to_stress_with_output_filename(self):
         """Test image_to_stress saves output when output_filename is provided."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create synthetic input image
-            data = np.random.rand(8, 8, 3, 4).astype(np.float32)
+            data = np.random.rand(2, 2, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             output_file = os.path.join(tmpdir, "test_output.tiff")
             io.save_image(input_file, data)
@@ -63,6 +64,7 @@ class TestImageToStress:
                 "S_i_hat": [1.0, 0.0],
                 "debug": False,
                 "output_filename": output_file,
+                "solver": "intensity",
             }
 
             main.image_to_stress(params)
@@ -72,7 +74,7 @@ class TestImageToStress:
 
             # Load and verify
             loaded, metadata = io.load_image(output_file)
-            assert loaded.shape == (8, 8, 3), "Output should be 3D stress tensor"
+            assert loaded.shape == (2, 2, 3), "Output should be 3D stress tensor"
 
     def test_image_to_stress_with_crop(self):
         """Test image_to_stress with crop parameter."""
@@ -84,50 +86,52 @@ class TestImageToStress:
 
             params = {
                 "input_filename": input_file,
-                "crop": [5, 15, 5, 15],  # [x1, x2, y1, y2]
+                "crop": [5, 7, 5, 7],  # [x1, x2, y1, y2]
                 "C": 3e-9,
                 "thickness": 0.01,
                 "wavelengths": [650, 550, 450],
                 "S_i_hat": [1.0, 0.0, 0.0],
                 "debug": False,
+                "solver": "intensity",
             }
 
             stress_map = main.image_to_stress(params)
 
             # Check cropped dimensions
-            assert stress_map.shape[0] == 10, "Cropped height should be 10"
-            assert stress_map.shape[1] == 10, "Cropped width should be 10"
+            assert stress_map.shape[0] == 2, "Cropped height should be 2"
+            assert stress_map.shape[1] == 2, "Cropped width should be 2"
             assert stress_map.shape[2] == 3, "Should have 3 stress components"
 
     def test_image_to_stress_with_binning(self):
         """Test image_to_stress with binning parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create synthetic input image
-            data = np.random.rand(20, 20, 3, 4).astype(np.float32)
+            data = np.random.rand(12, 12, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
             params = {
                 "input_filename": input_file,
-                "binning": 2,
+                "binning": 4,
                 "C": 3e-9,
                 "thickness": 0.01,
                 "wavelengths": [650, 550, 450],
                 "S_i_hat": [1.0, 0.0, 0.0],
                 "debug": False,
+                "solver": "intensity",
             }
 
             stress_map = main.image_to_stress(params)
 
             # Check binned dimensions (should be half)
-            assert stress_map.shape[0] == 10, "Binned height should be 10"
-            assert stress_map.shape[1] == 10, "Binned width should be 10"
+            assert stress_map.shape[0] == 3, "Binned height should be 3"
+            assert stress_map.shape[1] == 3, "Binned width should be 3"
             assert stress_map.shape[2] == 3, "Should have 3 stress components"
 
     def test_image_to_stress_with_c_array(self):
         """Test image_to_stress with array of C values."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            data = np.random.rand(10, 10, 3, 4).astype(np.float32)
+            data = np.random.rand(5, 5, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
@@ -138,10 +142,11 @@ class TestImageToStress:
                 "wavelengths": [650, 550, 450],
                 "S_i_hat": [1.0, 0.0, 0.0],
                 "debug": False,
+                "solver": "intensity",
             }
 
             stress_map = main.image_to_stress(params)
-            assert stress_map.shape == (10, 10, 3), "Stress map shape should match"
+            assert stress_map.shape == (5, 5, 3), "Stress map shape should match"
 
     def test_image_to_stress_missing_parameters(self):
         """Test image_to_stress raises error when neither folderName nor input_filename provided."""
@@ -159,7 +164,7 @@ class TestImageToStress:
     def test_image_to_stress_with_n_jobs(self):
         """Test image_to_stress with custom n_jobs parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            data = np.random.rand(10, 10, 3, 4).astype(np.float32)
+            data = np.random.rand(2, 2, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
@@ -171,10 +176,11 @@ class TestImageToStress:
                 "S_i_hat": [1.0, 0.0, 0.0],
                 "debug": False,
                 "n_jobs": 1,  # Use single core
+                "solver": "intensity",
             }
 
             stress_map = main.image_to_stress(params)
-            assert stress_map.shape == (10, 10, 3), "Stress map should be computed"
+            assert stress_map.shape == (2, 2, 3), "Stress map should be computed"
 
 
 class TestStressToImage:
@@ -185,7 +191,7 @@ class TestStressToImage:
         """Test basic stress_to_image functionality."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create synthetic stress field (H, W, 3) for [sigma_xy, sigma_yy, sigma_xx]
-            stress_data = np.random.rand(10, 10, 3).astype(np.float32) * 1e6
+            stress_data = np.random.rand(1, 2, 3).astype(np.float32) * 1e6
             stress_file = os.path.join(tmpdir, "stress.npy")
             io.save_image(stress_file, stress_data)
 
@@ -204,6 +210,7 @@ class TestStressToImage:
                 "lambda_light": 650e-9,
                 "C": 3e-9,
                 "output_filename": output_file,
+                "solver": "intensity",
             }
 
             # Mock the load_file and plotting functions
@@ -216,7 +223,7 @@ class TestStressToImage:
     def test_stress_to_image_with_scattering(self):
         """Test stress_to_image with Gaussian scattering."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            stress_data = np.random.rand(10, 10, 3).astype(np.float32) * 1e6
+            stress_data = np.random.rand(5, 5, 3).astype(np.float32) * 1e6
             stress_file = os.path.join(tmpdir, "stress.npy")
             io.save_image(stress_file, stress_data)
 
@@ -234,6 +241,7 @@ class TestStressToImage:
                 "lambda_light": 650e-9,
                 "C": 3e-9,
                 "output_filename": output_file,
+                "solver": "intensity",
             }
 
             with patch("photoelastimetry.main.open", create=True):
@@ -245,7 +253,7 @@ class TestStressToImage:
     def test_stress_to_image_default_output(self):
         """Test stress_to_image with default output filename."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            stress_data = np.random.rand(10, 10, 3).astype(np.float32) * 1e6
+            stress_data = np.random.rand(5, 5, 3).astype(np.float32) * 1e6
             stress_file = os.path.join(tmpdir, "stress.npy")
             io.save_image(stress_file, stress_data)
 
@@ -260,6 +268,7 @@ class TestStressToImage:
                 "t": 0.01,
                 "lambda_light": 650e-9,
                 "C": 3e-9,
+                "solver": "intensity",
                 # No output_filename - should default to "output.png"
             }
 

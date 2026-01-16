@@ -249,10 +249,10 @@ def _optimize_stress_tensor(
         delta_sigma_samples.append(n_fringes * fringe_stress)
 
     # Sample principal angles (0 to π, due to symmetry)
-    # theta_samples = np.linspace(0, np.pi, 12, endpoint=False)
+    # theta_samples = np.linspace(0, np.pi, 3, endpoint=False)
     theta_samples = np.array([0])
 
-    # Sample mean stress (hydrostatic component doesn't affect photoelasticity much)
+    # Sample mean stress
     sigma_mean_samples = np.linspace(-sigma_bound / 2, sigma_bound / 2, 5)
 
     start_points = []
