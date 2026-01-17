@@ -9,14 +9,14 @@ predicted Stokes parameters evolve during optimization.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from photoelastimetry.plotting import plot_optimization_history
-from photoelastimetry.solver.stokes_solver import (
+from photoelastimetry.optimiser.stokes import (
     compute_normalized_stokes,
     compute_stokes_components,
     predict_stokes,
     recover_stress_tensor,
     recover_stress_tensor_live,
 )
+from photoelastimetry.plotting import plot_optimization_history
 
 
 def create_synthetic_data():

@@ -88,7 +88,13 @@ def predict_intensity(
     # Incident Stokes vector from S_i_hat
     # S_in = I0 * [1, cos(2*pol_angle), sin(2*pol_angle), 0]
     S_i_hat = np.asarray(S_i_hat)
-    S_in = I0 * np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
+    if S_i_hat.ndim == 0:
+        # Scalar?? Should not happen but fallback
+        S_in = I0 * np.array([1.0, 1.0, 0.0, 0.0])  # Default Linear Horizontal
+    elif len(S_i_hat) == 2:
+        S_in = I0 * np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
+    else:
+        S_in = I0 * np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
 
     # Transmitted Stokes vector
     S_out = M @ S_in
@@ -271,7 +277,7 @@ def recover_stress_tensor_intensity(
     # Compute initial guess from Stokes-based method if not provided
     if initial_guess is None:
         # Quick estimate: compute Stokes and use closed-form estimate
-        from photoelastimetry.solver.stokes_solver import recover_stress_tensor
+        from photoelastimetry.optimiser.stokes import recover_stress_tensor
 
         S_m_hat = np.zeros((len(wavelengths), 2))
 
@@ -380,6 +386,7 @@ def recover_stress_map_intensity(
     use_poisson_weights=True,
     initial_guess_method="uniform",
     method="nelder-mead",
+    initial_guess_map=None,
     n_jobs=-1,
 ):
     """
@@ -415,6 +422,8 @@ def recover_stress_map_intensity(
         'zero' uses zeros, 'uniform' uses small uniform stress.
     method : str, optional
         Optimization method: 'lm' (default), 'trf', 'dogbox', or 'nelder-mead'.
+    initial_guess_map : ndarray, optional
+        Initial guess stress map [H, W, 3]. Overrides initial_guess_method.
     n_jobs : int, optional
         Number of parallel jobs. -1 uses all available cores (default: -1).
 
@@ -443,10 +452,9 @@ def recover_stress_map_intensity(
     success_map = np.zeros((H, W), dtype=bool)
 
     # Optionally compute initial guess map using Stokes method
-    initial_guess_map = None
-    if initial_guess_method == "stokes":
+    if initial_guess_map is None and initial_guess_method == "stokes":
         print("Computing initial guess using Stokes-based solver...")
-        from photoelastimetry.solver.stokes_solver import recover_stress_map_stokes
+        from photoelastimetry.optimiser.stokes import recover_stress_map_stokes
 
         initial_guess_map = recover_stress_map_stokes(
             image_stack,
@@ -574,7 +582,7 @@ def compare_stokes_vs_intensity(
     """
     import time
 
-    from photoelastimetry.solver.stokes_solver import recover_stress_map_stokes
+    from photoelastimetry.optimiser.stokes import recover_stress_map_stokes
 
     print("=== Running Stokes-based Solver ===")
     t0 = time.time()

@@ -1,4 +1,4 @@
-# solver.intensity_solver
+# optimiser.intensity
 
 Intensity-based pixel-wise stress inversion.
 
@@ -10,7 +10,7 @@ This module provides an alternative approach that works directly with raw polari
 - `recover_stress_map_intensity()` - Main function for intensity-based stress recovery
 - `compare_stokes_vs_intensity()` - Compare Stokes and intensity-based methods
 
-::: photoelastimetry.solver.intensity_solver
+::: photoelastimetry.optimiser.intensity
     options:
       show_root_heading: true
       show_source: true

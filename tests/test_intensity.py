@@ -9,7 +9,7 @@ with noise modeling and parameter optimization.
 import numpy as np
 import pytest
 
-from photoelastimetry.solver.intensity_solver import (
+from photoelastimetry.optimiser.intensity import (
     compare_stokes_vs_intensity,
     compute_intensity_residual,
     predict_intensity,

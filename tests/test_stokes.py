@@ -10,7 +10,7 @@ import sys
 
 import numpy as np
 
-from photoelastimetry.solver.stokes_solver import (  # compute_residual,
+from photoelastimetry.optimiser.stokes import (  # compute_residual,
     compute_normalized_stokes,
     compute_principal_angle,
     compute_retardance,

@@ -9,7 +9,7 @@ and disk-under-compression simulation functionality.
 import numpy as np
 import pytest
 
-from photoelastimetry.disk import (
+from photoelastimetry.generate.disk import (
     diametrical_stress_cartesian,
     generate_synthetic_brazil_test,
     simulate_four_step_polarimetry,

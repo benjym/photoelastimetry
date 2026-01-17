@@ -10,14 +10,14 @@ This section provides detailed documentation for all modules, classes, and funct
 - [main](main.md) - Command-line interface entry points
 - [plotting](plotting.md) - Visualization utilities and colormaps
 
-## Solver Modules
+## Optimiser Modules
 
-The solver subpackage provides three complementary approaches for stress field recovery:
+The optimiser subpackage provides three complementary approaches for stress field recovery:
 
-- [solver](solver.md) - Main solver module with high-level API
-- [solver.stokes_solver](stokes_solver.md) - Stokes-based pixel-wise inversion
-- [solver.intensity_solver](intensity_solver.md) - Intensity-based pixel-wise inversion
-- [solver.global_solver](global_solver.md) - Global equilibrium-based inversion
+- [optimiser](optimiser.md) - Main optimiser module with high-level API
+- [optimiser.stokes](stokes.md) - Stokes-based pixel-wise inversion
+- [optimiser.intensity](intensity.md) - Intensity-based pixel-wise inversion
+- [optimiser.equilibrium](equilibrium.md) - Global equilibrium-based inversion
 
 ## Quick Links
 

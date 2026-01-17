@@ -7,7 +7,7 @@ This page provides practical examples for using the photoelastimetry package.
 You can generate a pre-set disk stress solution for validation using the parameters in `json/test.json5`:
 
 ```bash
-python photoelastimetry/disk.py
+python photoelastimetry/generate/disk.py
 ```
 
 This can be inverted to recover the stress field using the standard solvers via
@@ -21,7 +21,7 @@ image-to-stress json/test.json5
 Analyze a set of photoelastic images to extract stress fields:
 
 ```python
-import photoelastimetry.solver as solver
+import photoelastimetry.optimiser as optimiser
 import numpy as np
 
 # Load your polarimetric images (4 angles: 0°, 45°, 90°, 135°)
@@ -86,8 +86,8 @@ image-to-stress params.json5 --output stress_field.png
 Compare results from different stress inversion methods:
 
 ```python
-import photoelastimetry.solver.intensity_solver as intensity_solver
-import photoelastimetry.solver.stokes_solver as stokes_solver
+import photoelastimetry.optimiser.intensity as intensity_optimiser
+import photoelastimetry.optimiser.stokes as stokes_optimiser
 
 # Using intensity-based method
 stress_intensity = intensity_solver.recover_stress_map_intensity(
@@ -112,7 +112,7 @@ comparison = intensity_solver.compare_stokes_vs_intensity(
 Use the equilibrium-based solver for mechanical consistency:
 
 ```python
-import photoelastimetry.solver.equilibrium_solver as eq_solver
+import photoelastimetry.optimiser.equilibrium as eq_optimiser
 
 # First get local solution
 stress_local = solver.recover_stress_map_stokes(

@@ -545,7 +545,11 @@ def _process_pixel(args):
 
     Helper function for parallel processing in recover_stress_map.
     """
-    y, x, image_stack, wavelengths, C_values, nu, L, S_i_hat = args
+    if len(args) == 9:
+        y, x, image_stack, wavelengths, C_values, nu, L, S_i_hat, initial_guess = args
+    else:
+        y, x, image_stack, wavelengths, C_values, nu, L, S_i_hat = args
+        initial_guess = None
 
     # Get intensity measurements for all colour channels
     S_m_hat = np.zeros((3, 2))
@@ -569,7 +573,9 @@ def _process_pixel(args):
     nu_pixel = nu if np.isscalar(nu) else nu[y, x]
 
     # Recover stress tensor
-    stress_tensor, success = recover_stress_tensor(S_m_hat, wavelengths, C_values, nu_pixel, L, S_i_hat)
+    stress_tensor, success = recover_stress_tensor(
+        S_m_hat, wavelengths, C_values, nu_pixel, L, S_i_hat, initial_guess=initial_guess
+    )
 
     if success:
         return (y, x, stress_tensor)
@@ -584,6 +590,7 @@ def recover_stress_map_stokes(
     nu,
     L,
     S_i_hat,
+    initial_guess_map=None,
     n_jobs=-1,
 ):
     """
@@ -607,6 +614,8 @@ def recover_stress_map_stokes(
         Sample thickness (m).
     S_i_hat : array-like
         Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+    initial_guess_map : ndarray, optional
+        Initial guess stress map [H, W, 3].
     n_jobs : int, optional
         Number of parallel jobs. -1 uses all available cores (default: -1).
 
@@ -624,7 +633,13 @@ def recover_stress_map_stokes(
     pixel_coords = [(y, x) for y in range(H) for x in range(W)]
 
     # Create arguments for each pixel
-    pixel_args = [(y, x, image_stack, wavelengths, C_values, nu, L, S_i_hat) for y, x in pixel_coords]
+    if initial_guess_map is not None:
+        pixel_args = [
+            (y, x, image_stack, wavelengths, C_values, nu, L, S_i_hat, initial_guess_map[y, x])
+            for y, x in pixel_coords
+        ]
+    else:
+        pixel_args = [(y, x, image_stack, wavelengths, C_values, nu, L, S_i_hat) for y, x in pixel_coords]
 
     # Process pixels in parallel
     results = Parallel(n_jobs=n_jobs)(

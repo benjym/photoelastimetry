@@ -1,4 +1,4 @@
-# solver.stokes_solver
+# optimiser.stokes
 
 Stokes-based pixel-wise stress inversion.
 
@@ -11,7 +11,7 @@ This module implements stress field recovery using normalized Stokes components 
 - `recover_stress_map_stokes()` - Main function for stress field recovery
 - `predict_stokes()` - Forward model for validation
 
-::: photoelastimetry.solver.stokes_solver
+::: photoelastimetry.optimiser.stokes
     options:
       show_root_heading: true
       show_source: true

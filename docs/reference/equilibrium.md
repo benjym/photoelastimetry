@@ -1,4 +1,4 @@
-# solver.global_solver
+# optimiser.equilibrium
 
 Global stress measurement using Airy stress function.
 
@@ -9,7 +9,7 @@ This module implements a global inversion approach that solves for an Airy stres
 - `recover_stress_global()` - Main function for global stress recovery
 - `loss_and_gradient()` - Optimization loss function function
 
-::: photoelastimetry.solver.global_solver
+::: photoelastimetry.optimiser.equilibrium
     options:
       show_root_heading: true
       show_source: true

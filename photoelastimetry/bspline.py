@@ -165,3 +165,58 @@ class BSplineAiry:
         grad_C += self.dBy.T @ grad_s_xy @ self.dBx
 
         return grad_C.flatten()
+
+    def fit_stress_field(self, stress_map):
+        """
+        Fit B-spline coefficients to an initial stress map.
+
+        Parameters
+        ----------
+        stress_map : ndarray
+            Target stress map [H, W, 3] usually from seeding.
+
+        Returns
+        -------
+        coeffs_flat : ndarray
+            Flattened coefficients fitting the stress map.
+        """
+        target_s_xx = stress_map[:, :, 0]
+        target_s_yy = stress_map[:, :, 1]
+        target_s_xy = stress_map[:, :, 2]
+
+        def loss_and_grad(coeffs):
+            s_xx, s_yy, s_xy = self.get_stress_fields(coeffs)
+
+            diff_xx = s_xx - target_s_xx
+            diff_yy = s_yy - target_s_yy
+            diff_xy = s_xy - target_s_xy
+
+            # Handle NaNs in target (e.g. from failed seeding or masking)
+            if np.isnan(stress_map).any():
+                mask_xx = np.isnan(target_s_xx)
+                mask_yy = np.isnan(target_s_yy)
+                mask_xy = np.isnan(target_s_xy)
+
+                diff_xx[mask_xx] = 0
+                diff_yy[mask_yy] = 0
+                diff_xy[mask_xy] = 0
+
+            loss = np.sum(diff_xx**2 + diff_yy**2 + diff_xy**2)
+
+            # Gradient
+            # d(Loss)/ds = 2 * diff
+            grad = self.project_stress_gradients(2 * diff_xx, 2 * diff_yy, 2 * diff_xy)
+
+            return loss, grad
+
+        from scipy.optimize import minimize
+
+        # Start from zeros
+        res = minimize(
+            loss_and_grad,
+            np.zeros(self.n_coeffs),
+            jac=True,
+            method="L-BFGS-B",
+            options={"disp": False, "maxiter": 100},  # Quick fit
+        )
+        return res.x

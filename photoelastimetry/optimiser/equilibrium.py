@@ -43,6 +43,7 @@ def recover_stress_global(
     max_iterations=100,
     tolerance=1e-5,
     analyzer_angles=None,
+    initial_stress_map=None,
     verbose=True,
     debug=True,
     **kwargs,
@@ -70,6 +71,8 @@ def recover_stress_global(
         Mask where stress should be enforced to boundary_value.
     boundary_weight : float
         Weight for boundary condition penalty.
+    initial_stress_map : ndarray, optional
+        Initial guess for stress field [H, W, 3] to seed B-spline.
     """
 
     H, W, n_wl, n_ang = image_stack.shape
@@ -352,6 +355,13 @@ def recover_stress_global(
     # Start with noise ~0.1% of the expected stress range to ensure we are outside the singular region
     # (Singularity protection threshold is stress^2 < 1e-20)
     initial_coeffs = rng.normal(0, 1e-10, bspline.n_coeffs)
+
+    if initial_stress_map is not None:
+        if verbose:
+            print("Global Solver: Fitting B-spline to initial stress map...")
+        fitted_coeffs = bspline.fit_stress_field(initial_stress_map)
+        # Apply inverse scaling (optimization variable is coeffs / COEFF_SCALE)
+        initial_coeffs = fitted_coeffs / COEFF_SCALE
     # initial_coeffs = np.zeros(bspline.n_coeffs)
 
     # Use L-BFGS-B

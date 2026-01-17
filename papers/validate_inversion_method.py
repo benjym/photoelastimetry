@@ -22,7 +22,7 @@ from plot_config import CHANNEL_NAMES, COLORS, configure_plots
 from tqdm import tqdm
 
 from photoelastimetry.image import compute_principal_angle, compute_retardance
-from photoelastimetry.solver.intensity_solver import predict_intensity, recover_stress_tensor_intensity
+from photoelastimetry.optimiser.intensity import predict_intensity, recover_stress_tensor_intensity
 
 # Set up matplotlib for publication-quality figures
 configure_plots()

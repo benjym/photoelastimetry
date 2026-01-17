@@ -9,7 +9,7 @@ for photoelastic analysis with proper pytest structure and fixtures.
 import numpy as np
 import pytest
 
-from photoelastimetry.solver.stokes_solver import (
+from photoelastimetry.optimiser.stokes import (
     compute_normalized_stokes,
     compute_principal_angle,
     compute_retardance,

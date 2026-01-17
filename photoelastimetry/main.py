@@ -6,12 +6,11 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 
 import photoelastimetry.io
+import photoelastimetry.optimiser.equilibrium
+import photoelastimetry.optimiser.intensity
+import photoelastimetry.optimiser.stokes
 import photoelastimetry.plotting
-import photoelastimetry.solver.global_solver
-import photoelastimetry.solver.intensity_solver
-import photoelastimetry.solver.stokes_solver
-
-# import photoelastimetry.solver.equilibrium_solver
+import photoelastimetry.seeding
 
 
 def image_to_stress(params, output_filename=None):
@@ -62,7 +61,7 @@ def image_to_stress(params, output_filename=None):
             photoelastimetry.io.save_image("debug_cropped_image.tiff", data, metadata)
 
     if params["debug"]:
-        import matplotlib.pyplot as plt
+        # import matplotlib.pyplot as plt
         import tifffile
 
         tifffile.imwrite("debug_before_binning.tiff", data[:, :, 0, 0])
@@ -97,34 +96,48 @@ def image_to_stress(params, output_filename=None):
 
     # Calculate stress map from image
     n_jobs = params.get("n_jobs", -1)  # Default to using all cores
-    if params.get("solver") == "stokes":
-        stress_map = photoelastimetry.solver.stokes_solver.recover_stress_map_stokes(
+
+    # Phase Decomposed Seeding
+    seeding_config = params.get("seeding", {})
+    use_seeding = seeding_config.get("enabled", True)
+    n_max = seeding_config.get("n_max", 6)
+    sigma_max = seeding_config.get("sigma_max", 10e6)
+
+    initial_stress_map = None
+    if use_seeding and params.get("solver") != "stokes":
+        print("Running phase decomposed seeding...")
+        initial_stress_map = photoelastimetry.seeding.phase_decomposed_seeding(
             data,
             WAVELENGTHS,
             C_VALUES,
             NU,
             L,
             S_I_HAT,
+            sigma_max=sigma_max,
+            n_max=n_max,
+            n_jobs=n_jobs,
+        )
+
+    if params.get("solver") == "stokes":
+        stress_map = photoelastimetry.optimiser.stokes.recover_stress_map_stokes(
+            data,
+            WAVELENGTHS,
+            C_VALUES,
+            NU,
+            L,
+            S_I_HAT,
+            initial_guess_map=initial_stress_map,
             n_jobs=n_jobs,
         )
     elif params.get("solver") == "intensity":
-        stress_map, success_map = photoelastimetry.solver.intensity_solver.recover_stress_map_intensity(
+        stress_map, success_map = photoelastimetry.optimiser.intensity.recover_stress_map_intensity(
             data,
             WAVELENGTHS,
             C_VALUES,
             NU,
             L,
             S_I_HAT,
-            n_jobs=n_jobs,
-        )
-    elif params.get("solver") == "equilibrium":
-        stress_map = photoelastimetry.solver.equilibrium_solver.recover_stress_field_global_iterative(
-            data,
-            WAVELENGTHS,
-            C_VALUES,
-            NU,
-            L,
-            S_I_HAT,
+            initial_guess_map=initial_stress_map,
             n_jobs=n_jobs,
         )
     elif params.get("solver") == "global":
@@ -138,11 +151,19 @@ def image_to_stress(params, output_filename=None):
             if os.path.exists(gs_params["boundary_mask_file"]):
                 boundary_mask = tifffile.imread(gs_params["boundary_mask_file"]) > 0
 
-        stress_map = photoelastimetry.solver.global_solver.recover_stress_global(
-            data, WAVELENGTHS, C_VALUES, NU, L, S_I_HAT, boundary_mask=boundary_mask, **gs_params
+        stress_map = photoelastimetry.optimiser.equilibrium.recover_stress_global(
+            data,
+            WAVELENGTHS,
+            C_VALUES,
+            NU,
+            L,
+            S_I_HAT,
+            boundary_mask=boundary_mask,
+            initial_stress_map=initial_stress_map,
+            **gs_params,
         )
     else:
-        raise ValueError("Solver type not recognized. Use 'stokes', 'intensity', 'equilibrium', or 'global'.")
+        raise ValueError("Solver type not recognized. Use 'stokes', 'intensity', or 'global'.")
 
     if params.get("output_filename") is not None:
         output_filename = params["output_filename"]

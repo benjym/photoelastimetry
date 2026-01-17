@@ -5,8 +5,6 @@ from glob import glob
 import numpy as np
 from tqdm import tqdm
 
-import photoelastimetry.image as image
-
 
 def read_raw(filename, metadata):
     with open(filename, "rb") as f:
