@@ -22,3 +22,4 @@ The optimiser subpackage provides three complementary approaches for stress fiel
 
 - [generate.disk](generate/disk.md) - Generate synthetic disk data
 - [generate.point_load](generate/point_load.md) - Generate point load stress fields
+- [generate.lithostatic](generate/lithostatic.md) - Generate lithostatic stress fields

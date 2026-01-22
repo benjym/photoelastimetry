@@ -80,6 +80,7 @@ nav:
       - Generator Modules:
           - disk: reference/generate/disk.md
           - point_load: reference/generate/point_load.md
+          - lithostatic: reference/generate/lithostatic.md
           - image: reference/image.md
           - io: reference/io.md
           - main: reference/main.md
