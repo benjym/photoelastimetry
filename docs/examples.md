@@ -21,7 +21,8 @@ image-to-stress json/test.json5
 Analyze a set of photoelastic images to extract stress fields:
 
 ```python
-import photoelastimetry.optimiser as optimiser
+import photoelastimetry.image as image
+import photoelastimetry.optimiser.stokes as stokes_optimiser
 import numpy as np
 
 # Load your polarimetric images (4 angles: 0°, 45°, 90°, 135°)
@@ -30,24 +31,23 @@ I45 = np.load('image_45deg.npy')
 I90 = np.load('image_90deg.npy')
 I135 = np.load('image_135deg.npy')
 
-# Stack intensities
-intensities = np.stack([I0, I45, I90, I135], axis=-1)
-
 # Compute Stokes components
-S = solver.compute_stokes_components(intensities)
+S0, S1, S2 = image.compute_stokes_components(I0, I45, I90, I135)
 
 # Normalise Stokes components
-S_normalised = solver.compute_normalised_stokes(S)
+S1_hat, S2_hat = image.compute_normalised_stokes(S0, S1, S2)
+S_normalised = np.stack([S1_hat, S2_hat], axis=0) # Shape depends on implementation, usually (3, H, W) or (H, W, 2)
 
 # Material properties
 C = 5e-11  # Stress-optic coefficient (1/Pa)
 t = 0.005  # Sample thickness (m)
 wavelength = 550e-9  # Wavelength (m)
 nu = 1.0  # Solid fraction
+S_i_hat = [1, 0] # Horizontal input polarisation
 
 # Recover stress field
-stress_map = solver.recover_stress_map_stokes(
-    S_normalised, C, nu, t, wavelength
+stress_map, residuals = stokes_optimiser.recover_stress_map_stokes(
+    S_normalised, [wavelength], [C], nu, t, S_i_hat
 )
 
 # Extract stress components
@@ -86,24 +86,22 @@ image-to-stress params.json5 --output stress_field.png
 Compare results from different stress inversion methods:
 
 ```python
+import photoelastimetry.image as image
 import photoelastimetry.optimiser.intensity as intensity_optimiser
 import photoelastimetry.optimiser.stokes as stokes_optimiser
 
 # Using intensity-based method
-stress_intensity = intensity_solver.recover_stress_map_intensity(
-    intensities, C, nu, t, wavelength
+stress_intensity, _ = intensity_optimiser.recover_stress_map_intensity(
+    intensities, [wavelength], [C], nu, t, S_i_hat=[1, 0]
 )
 
 # Using Stokes-based method
-S = stokes_solver.compute_stokes_components(intensities)
-S_norm = stokes_solver.compute_normalised_stokes(S)
-stress_stokes = stokes_solver.recover_stress_map_stokes(
-    S_norm, C, nu, t, wavelength
-)
+S0, S1, S2 = image.compute_stokes_components(I0, I45, I90, I135)
+S1_hat, S2_hat = image.compute_normalised_stokes(S0, S1, S2)
+S_norm = np.stack([S1_hat, S2_hat], axis=0)
 
-# Compare methods
-comparison = intensity_solver.compare_stokes_vs_intensity(
-    intensities, C, nu, t, wavelength
+stress_stokes, _ = stokes_optimiser.recover_stress_map_stokes(
+    S_norm, [wavelength], [C], nu, t, S_i_hat=[1, 0]
 )
 ```
 
@@ -113,25 +111,26 @@ Use the equilibrium-based solver for mechanical consistency:
 
 ```python
 import photoelastimetry.optimiser.equilibrium as eq_optimiser
+import photoelastimetry.optimiser.stokes as stokes_optimiser
 
 # First get local solution
-stress_local = solver.recover_stress_map_stokes(
-    S_normalised, C, nu, t, wavelength
+stress_local, _ = stokes_optimiser.recover_stress_map_stokes(
+    S_normalised, [wavelength], [C], nu, t, S_i_hat=[1, 0]
 )
 
 # Grid spacing
-dx = 1.0  # meters
-dy = 1.0  # meters
+dx = 1e-4  # meters
+dy = 1e-4  # meters
 
 # Refine using equilibrium constraints
-stress_global = eq_solver.recover_stress_field_global(
-    stress_local, dx, dy, max_iterations=1000
+stress_global = eq_optimiser.recover_stress_global(
+    stress_local, dx, dy, max_iter=1000
 )
 
 # Compare local vs global solutions
-comparison = eq_solver.compare_local_vs_global(
-    stress_local, stress_global, dx, dy
-)
+# comparison = eq_optimiser.compare_local_vs_global(
+#     stress_local, stress_global, dx, dy
+# )
 ```
 
 ## Example 6: Forward Simulation

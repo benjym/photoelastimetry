@@ -123,24 +123,22 @@ The package provides three complementary approaches for stress field recovery:
 
 ### Stokes-based Solver
 
-Uses normalised Stokes components for pixel-wise stress inversion. This is the primary method for most applications.
+Uses normalised Stokes components for pixel-wise stress inversion. This is deprecated and should not be used.
 
-- Best for: Standard photoelastic analysis
-- Module: `photoelastimetry.solver.stokes_solver`
+- Module: `photoelastimetry.optimiser.stokes`
 
 ### Intensity-based Solver
 
-Works directly with raw polarisation intensities for pixel-wise inversion.
+Works directly with raw polarisation intensities for pixel-wise inversion. Only used for validation purposes.
 
-- Best for: When raw intensities are more reliable than Stokes parameters
-- Module: `photoelastimetry.solver.intensity_solver`
+- Module: `photoelastimetry.optimiser.intensity`
 
 ### Equilibrium Solver
 
-Global inversion that enforces mechanical equilibrium constraints using an Airy stress function.
+Global inversion that enforces mechanical equilibrium constraints using an Airy stress function. This is the recommended method for accurate stress recovery.
 
 - Best for: Cases where mechanical equilibrium is important
-- Module: `photoelastimetry.solver.equilibrium_solver`
+- Module: `photoelastimetry.optimiser.equilibrium`
 
 ## Photoelastic Theory
 

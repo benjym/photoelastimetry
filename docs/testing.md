@@ -9,17 +9,16 @@ The photoelastimetry package includes a comprehensive test suite using `pytest` 
 ```
 tests/
 ├── __init__.py                       # Test package initialization
-├── test_stokes_solver_pytest.py      # Stokes-based stress recovery tests
-├── test_intensity_solver.py          # Intensity-based stress recovery tests
-├── test_global_solver.py             # Global stress recovery tests
+├── test_stokes_pytest.py             # Stokes-based stress recovery tests
+├── test_intensity.py                 # Intensity-based stress recovery tests
 ├── test_disk.py                      # Disk simulation and synthetic data tests
 ├── test_image_io.py                  # Image processing and I/O tests
-└── test_stokes_solver.py             # Legacy comprehensive tests (kept for reference)
+└── test_stokes.py                    # Legacy comprehensive tests (kept for reference)
 ```
 
 ## Test Coverage by Module
 
-### Stokes Solver (`test_stokes_solver_pytest.py`)
+### Stokes Solver (`test_stokes_pytest.py`)
 
 Tests for the Stokes-based photoelastic stress recovery:
 
@@ -40,7 +39,7 @@ Tests for the Stokes-based photoelastic stress recovery:
 - Shear stress recovery
 - Principal stress difference accuracy
 
-### Intensity Solver (`test_intensity_solver.py`)
+### Intensity Solver (`test_intensity.py`)
 
 Tests for raw intensity-based stress recovery:
 
@@ -107,13 +106,13 @@ Tests for image processing functions:
 pytest
 
 # Run specific test file
-pytest tests/test_stokes_solver_pytest.py
+pytest tests/test_stokes_pytest.py
 
 # Run specific test class
-pytest tests/test_stokes_solver_pytest.py::TestStokesComponents
+pytest tests/test_stokes_pytest.py::TestStokesComponents
 
 # Run specific test function
-pytest tests/test_stokes_solver_pytest.py::TestStokesComponents::test_compute_stokes_components
+pytest tests/test_stokes_pytest.py::TestStokesComponents::test_compute_stokes_components
 
 # Verbose output
 pytest -v
@@ -237,7 +236,7 @@ class TestNewFeature:
 
 Target coverage by module:
 
-- **Core solvers**: >80% (stokes_solver, intensity_solver, global_solver)
+- **Core solvers**: >80% (optimiser.stokes, optimiser.intensity, optimiser.equilibrium)
 - **Utilities**: >70% (image, io, plotting)
 - **Applications**: >60% (disk, main)
 - **Overall**: >70%
