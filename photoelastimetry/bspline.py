@@ -38,8 +38,8 @@ class BSplineAiry:
         # Generate knots
         # We need knots to cover the range [0, n] with sufficient padding for the degree
         # interior knots
-        tx = np.arange(0, self.nx + knot_spacing, knot_spacing)
-        ty = np.arange(0, self.ny + knot_spacing, knot_spacing)
+        # tx = np.arange(0, self.nx + knot_spacing, knot_spacing)
+        # ty = np.arange(0, self.ny + knot_spacing, knot_spacing)
 
         # Add simpler padding
         # Standard way for clamped B-spline is repeating start/end knots degree+1 times

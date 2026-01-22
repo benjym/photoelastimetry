@@ -514,7 +514,7 @@ def recover_stress_map_intensity(
     pixel_coords = [(y, x) for y in range(H) for x in range(W)]
 
     # Process pixels in parallel
-    print(f"Processing {H}×{W} = {H*W} pixels with intensity-based solver...")
+    print(f"Processing {H}×{W} = {H * W} pixels with intensity-based solver...")
     results = Parallel(n_jobs=n_jobs)(
         delayed(process_pixel)(y, x) for y, x in tqdm(pixel_coords, desc="Intensity inversion")
     )
@@ -629,15 +629,15 @@ def compare_stokes_vs_intensity(
         results["stokes_error"] = stokes_error
         results["intensity_error"] = intensity_error
 
-        print(f"\n=== Comparison Results ===")
+        print("\n=== Comparison Results ===")
         print(f"Stokes RMSE vs truth: {stokes_error:.3e} Pa")
         print(f"Intensity RMSE vs truth: {intensity_error:.3e} Pa")
-        print(f"Improvement: {(1 - intensity_error/stokes_error)*100:.1f}%")
+        print(f"Improvement: {(1 - intensity_error / stokes_error) * 100:.1f}%")
 
     print(f"\nStokes success rate: {stokes_success_rate:.1f}%")
     print(f"Intensity success rate: {intensity_success_rate:.1f}%")
     print(f"Stokes runtime: {t_stokes:.2f} s")
     print(f"Intensity runtime: {t_intensity:.2f} s")
-    print(f"Speedup: {t_stokes/t_intensity:.2f}x")
+    print(f"Speedup: {t_stokes / t_intensity:.2f}x")
 
     return results

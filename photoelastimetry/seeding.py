@@ -28,58 +28,44 @@ def invert_wrapped_retardance(S_m_hat):
     delta_wrap : ndarray
         Wrapped retardance [0, pi] for each channel. Shape: (n_wavelengths,)
     """
-    # Eq. 6 from paper (adapted for multiple wavelengths)
-    # S1 = cos(2theta)^2 + sin(2theta)^2 * cos(delta)
-    # S2 = sin(4theta) * sin(delta/2)^2
-    # But usually standard photoelasticity Stokes relations are:
-    # S1 = sin(delta) * cos(2theta)
-    # S2 = sin(delta) * sin(2theta)
-    # ... Wait, let's verify the equations from the description provided in step 1.
-
-    # From research summary:
-    # theta = (1/4) * atan2(-S2, -(S1 + S0))  <-- This looks specific to the method
-    # sin^2(delta/2) = sqrt((S1+S0)^2 + S2^2) / (2*S0)
-
-    # However, standard normalized Stokes (s1 = S1/S0, s2 = S2/S0) are passed here?
-    # The current code uses normalized Stokes in stokes_solver.
-    # Let's check `stokes_solver.py` prediction model again?
-    # No, I should follow the paper's specific inversion if it differs.
-    # The summary says:
-    # S_m_hat is normalized [S1_hat, S2_hat]. S0 is implicitly 1.
-
-    # Re-reading summary:
-    # theta = (1/4) * atan2(-S₂ᶜ, -(S₁ᶜ + S₀ᶜ))
-    # sin²(δc,wrap/2) = √[(S₁ᶜ + S₀ᶜ)² + (S₂ᶜ)²] / (2S₀ᶜ)
-    # With normalized Stokes s1 = S1/S0, s2 = S2/S0:
-    # theta = (1/4) * atan2(-s2, -(s1 + 1))
-    # sin²(delta/2) = sqrt((s1 + 1)^2 + s2^2) / 2
 
     s1 = S_m_hat[:, 0]
     s2 = S_m_hat[:, 1]
 
-    # Updated inversion for S_in=[1, 0] (Linear Horizontal)
-    # Based on S1 = 1 - 2*sin^2(2theta)*sin^2(delta/2)
-    #          S2 = sin(4theta)*sin^2(delta/2)
-    # atan2(1-S1, S2) = 2*theta
-    theta_c = 0.5 * np.arctan2(1 - s1, s2)
+    # Use vector averaging for angle to handle wrap-around and weight by signal strength
+    # 2*theta = atan2(1-s1, s2)
+    # Vectors are v = [s2, 1-s1] (x, y)
+    # Summing vectors weighs them by their magnitude (approx sin^2(delta/2))
+    x_sum = np.sum(s2)
+    y_sum = np.sum(1 - s1)
 
-    # Unwrap theta to be consistent? Or just circular mean.
-    # For now, simple mean.
-    theta = np.mean(theta_c)
+    theta_mean = 0.5 * np.arctan2(y_sum, x_sum)
 
     # Wrapped retardance
-    # sin^2(delta/2) = sqrt((1-S1)^2 + S2^2) / 2
-    sin_sq_delta_2 = np.sqrt((1 - s1) ** 2 + s2**2) / 2
+    # The magnitude is modulated by sin(2*theta) in a linear polariscope
+    # sin^2(delta/2) * |sin(2*theta)| = sqrt((1-S1)^2 + S2^2) / 2
+    sin_2theta = np.abs(np.sin(2 * theta_mean))
+
+    raw_magnitude = np.sqrt((1 - s1) ** 2 + s2**2) / 2
+
+    # Avoid division by zero at isoclinics
+    if sin_2theta > 1e-3:
+        sin_sq_delta_2 = raw_magnitude / sin_2theta
+    else:
+        # At isoclinics, we cannot recover retardance reliably.
+        # Fallback or keep as 0 (effectively what raw_magnitude gives, scaled)
+        sin_sq_delta_2 = raw_magnitude
+
     # Clamp to [0, 1] for numerical stability
     sin_sq_delta_2 = np.clip(sin_sq_delta_2, 0, 1)
 
     # delta = 2 * asin(sqrt(...))
     delta_wrap = 2 * np.arcsin(np.sqrt(sin_sq_delta_2))
 
-    return theta, delta_wrap
+    return theta_mean, delta_wrap
 
 
-def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma_max, n_max=6):
+def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma_max=None, n_max=6):
     """
     Resolve fringe orders using multi-wavelength consistency.
 
@@ -97,7 +83,7 @@ def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma
         Solid fraction.
     L : float
         Thickness.
-    sigma_max : float
+    sigma_max : float, optional
         Maximum expected stress difference (Pa).
     n_max : int
         Maximum fringe order to search.
@@ -125,21 +111,22 @@ def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma
     best_delta_sigma = 0.0
 
     # Generate candidates using both phase branches
-    # D_pos = delta_wrap + 2*pi*n
+    # D_pos = 2*pi*n + delta_wrap
     # D_neg = 2*pi*(n+1) - delta_wrap (assuming delta is positive and delta_wrap in [0, pi])
     channel_candidates = []
     import itertools
 
     for c in range(n_channels):
         n_vals = np.arange(n_max + 1)
-        d_pos = delta_wrap[c] + 2 * np.pi * n_vals
+        d_pos = 2 * np.pi * n_vals + delta_wrap[c]
         d_neg = 2 * np.pi * (n_vals + 1) - delta_wrap[c]
 
         cands = np.concatenate([d_pos, d_neg])
         stress_cands = factor[c] * cands
 
         # Filter individually by max stress
-        stress_cands = stress_cands[stress_cands < sigma_max * 1.5]  # Allow some buffer
+        if sigma_max is not None:
+            stress_cands = stress_cands[stress_cands < sigma_max * 1.5]  # Allow some buffer
         channel_candidates.append(stress_cands)
 
     if not all(len(c) > 0 for c in channel_candidates):
@@ -154,7 +141,7 @@ def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma
         var = np.var(stress_vals)
         if var < best_var:
             best_var = var
-            best_delta_sigma = np.mean(stress_vals)
+            best_delta_sigma = np.median(stress_vals)
 
     return best_delta_sigma
 
@@ -203,7 +190,7 @@ def phase_decomposed_seeding(
     nu,
     L,
     S_i_hat,
-    sigma_max=10e6,
+    sigma_max=None,
     n_max=6,
     n_jobs=-1,
 ):
@@ -224,7 +211,7 @@ def phase_decomposed_seeding(
         Sample thickness in meters.
     S_i_hat : ndarray
         Incoming normalized Stokes vector.
-    sigma_max : float
+    sigma_max : float, optional
         Maximum allowed stress difference (Pa).
     n_max : int
         Maximum fringe order to search.
