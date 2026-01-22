@@ -11,7 +11,7 @@ from scipy.optimize import differential_evolution, minimize
 from tqdm import tqdm
 
 from photoelastimetry.image import (
-    compute_normalized_stokes,
+    compute_normalised_stokes,
     compute_principal_angle,
     compute_retardance,
     compute_stokes_components,
@@ -21,7 +21,7 @@ from photoelastimetry.image import (
 
 def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):
     """
-    Predict normalized Stokes vector components from stress tensor.
+    Predict normalised Stokes vector components from stress tensor.
 
     Parameters
     ----------
@@ -40,14 +40,14 @@ def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):
     wavelength : float
         Wavelength of light (m).
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
-        If 2 elements, S3_hat is assumed to be 0 (no circular polarization).
-        If 3 elements, S3_hat represents circular polarization component.
+        Incoming normalised Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+        If 2 elements, S3_hat is assumed to be 0 (no circular polarisation).
+        If 3 elements, S3_hat represents circular polarisation component.
 
     Returns
     -------
     S_p_hat : ndarray
-        Predicted normalized Stokes components [S1_hat, S2_hat].
+        Predicted normalised Stokes components [S1_hat, S2_hat].
     """
     theta = compute_principal_angle(sigma_xx, sigma_yy, sigma_xy)
     delta = compute_retardance(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength)
@@ -57,7 +57,7 @@ def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):
     # Extend S_i_hat to full Stokes vector
     S_i_hat = np.asarray(S_i_hat)
     if len(S_i_hat) == 2:
-        # Backward compatibility: assume S3 = 0 (no circular polarization)
+        # Backward compatibility: assume S3 = 0 (no circular polarisation)
         S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
     elif len(S_i_hat) == 3:
         # Use provided circular component
@@ -68,7 +68,7 @@ def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):
     # Apply Mueller matrix
     S_m = M @ S_i_full
 
-    # Return normalized components (excluding S0)
+    # Return normalised components (excluding S0)
     S_p_hat = S_m[1:3]
 
     return S_p_hat
@@ -83,7 +83,7 @@ def compute_residual(stress_params, S_m_hat, wavelengths, C_values, nu, L, S_i_h
     stress_params : array-like
         Stress tensor components [sigma_xx, sigma_yy, sigma_xy].
     S_m_hat : ndarray
-        Measured normalized Stokes components, shape (3, 2) for RGB channels.
+        Measured normalised Stokes components, shape (3, 2) for RGB channels.
     wavelengths : array-like
         Wavelengths for R, G, B channels (m).
     C_values : array-like
@@ -93,7 +93,7 @@ def compute_residual(stress_params, S_m_hat, wavelengths, C_values, nu, L, S_i_h
     L : float
         Sample thickness (m).
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
 
     Returns
     -------
@@ -141,17 +141,17 @@ def _optimize_stress_tensor(
     Parameters
     ----------
     S_m_hat : ndarray
-        Measured normalized Stokes components, shape (3, 2) for RGB channels.
+        Measured normalised Stokes components, shape (3, 2) for RGB channels.
     wavelengths : array-like
         Wavelengths for R, G, B channels (m).
     C_values : array-like
         Stress-optic coefficients for R, G, B channels (1/Pa).
     nu : float
-        Solid fraction (use 1.0 for solid samples).
+        Solid fraction.
     L : float
         Sample thickness (m).
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
     initial_guess : array-like
         Initial guess for stress tensor [sigma_xx, sigma_yy, sigma_xy].
     max_fringes : float
@@ -341,7 +341,7 @@ def recover_stress_tensor(
     Parameters
     ----------
     S_m_hat : ndarray
-        Measured normalized Stokes components, shape (3, 2) for RGB channels.
+        Measured normalised Stokes components, shape (3, 2) for RGB channels.
         Each row is [S1_hat, S2_hat] for a colour channel.
     wavelengths : array-like
         Wavelengths for R, G, B channels (m).
@@ -352,7 +352,7 @@ def recover_stress_tensor(
     L : float
         Sample thickness (m).
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
     initial_guess : array-like, optional
         Initial guess for stress tensor [sigma_xx, sigma_yy, sigma_xy].
         Default is [1, 1, 1].
@@ -429,7 +429,7 @@ def recover_stress_tensor_live(
     Parameters
     ----------
     S_m_hat : ndarray
-        Measured normalized Stokes components, shape (3, 2) for RGB channels.
+        Measured normalised Stokes components, shape (3, 2) for RGB channels.
     wavelengths : array-like
         Wavelengths for R, G, B channels (m).
     C_values : array-like
@@ -439,7 +439,7 @@ def recover_stress_tensor_live(
     L : float
         Sample thickness (m).
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
     initial_guess : array-like, optional
         Initial guess for stress tensor [sigma_xx, sigma_yy, sigma_xy].
     update_interval : int, optional
@@ -563,8 +563,8 @@ def _process_pixel(args):
         # Compute Stokes components
         S0, S1, S2 = compute_stokes_components(I[0], I[1], I[2], I[3])
 
-        # Compute normalized Stokes components
-        S1_hat, S2_hat = compute_normalized_stokes(S0, S1, S2)
+        # Compute normalised Stokes components
+        S1_hat, S2_hat = compute_normalised_stokes(S0, S1, S2)
 
         S_m_hat[c, 0] = S1_hat
         S_m_hat[c, 1] = S2_hat
@@ -613,7 +613,7 @@ def recover_stress_map_stokes(
     L : float
         Sample thickness (m).
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
     initial_guess_map : ndarray, optional
         Initial guess stress map [H, W, 3].
     n_jobs : int, optional

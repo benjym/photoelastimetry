@@ -36,8 +36,8 @@ intensities = np.stack([I0, I45, I90, I135], axis=-1)
 # Compute Stokes components
 S = solver.compute_stokes_components(intensities)
 
-# Normalize Stokes components
-S_normalized = solver.compute_normalized_stokes(S)
+# Normalise Stokes components
+S_normalised = solver.compute_normalised_stokes(S)
 
 # Material properties
 C = 5e-11  # Stress-optic coefficient (1/Pa)
@@ -47,7 +47,7 @@ nu = 1.0  # Solid fraction
 
 # Recover stress field
 stress_map = solver.recover_stress_map_stokes(
-    S_normalized, C, nu, t, wavelength
+    S_normalised, C, nu, t, wavelength
 )
 
 # Extract stress components
@@ -96,7 +96,7 @@ stress_intensity = intensity_solver.recover_stress_map_intensity(
 
 # Using Stokes-based method
 S = stokes_solver.compute_stokes_components(intensities)
-S_norm = stokes_solver.compute_normalized_stokes(S)
+S_norm = stokes_solver.compute_normalised_stokes(S)
 stress_stokes = stokes_solver.recover_stress_map_stokes(
     S_norm, C, nu, t, wavelength
 )
@@ -116,7 +116,7 @@ import photoelastimetry.optimiser.equilibrium as eq_optimiser
 
 # First get local solution
 stress_local = solver.recover_stress_map_stokes(
-    S_normalized, C, nu, t, wavelength
+    S_normalised, C, nu, t, wavelength
 )
 
 # Grid spacing

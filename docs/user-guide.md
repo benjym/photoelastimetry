@@ -33,7 +33,7 @@ The JSON5 parameter file should contain:
 - `C`: Stress-optic coefficient in 1/Pa
 - `thickness`: Sample thickness in meters
 - `wavelengths`: List of wavelengths in nanometers
-- `S_i_hat`: Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat] representing polarization state
+- `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
 - `crop` (optional): Crop region as [y1, y2, x1, x2]
 - `debug` (optional): If true, display all channels for debugging
 
@@ -123,14 +123,14 @@ The package provides three complementary approaches for stress field recovery:
 
 ### Stokes-based Solver
 
-Uses normalized Stokes components for pixel-wise stress inversion. This is the primary method for most applications.
+Uses normalised Stokes components for pixel-wise stress inversion. This is the primary method for most applications.
 
 - Best for: Standard photoelastic analysis
 - Module: `photoelastimetry.solver.stokes_solver`
 
 ### Intensity-based Solver
 
-Works directly with raw polarization intensities for pixel-wise inversion.
+Works directly with raw polarisation intensities for pixel-wise inversion.
 
 - Best for: When raw intensities are more reliable than Stokes parameters
 - Module: `photoelastimetry.solver.intensity_solver`
@@ -153,6 +153,7 @@ The fundamental relationship between stress and optical retardation:
 ```
 
 Where:
+
 - δ is the optical retardation
 - C is the stress-optic coefficient
 - t is the specimen thickness

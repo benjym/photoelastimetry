@@ -11,7 +11,7 @@ import sys
 import numpy as np
 
 from photoelastimetry.optimiser.stokes import (  # compute_residual,
-    compute_normalized_stokes,
+    compute_normalised_stokes,
     compute_principal_angle,
     compute_retardance,
     compute_solid_fraction,
@@ -26,7 +26,7 @@ WAVELENGTHS = np.array([650e-9, 550e-9, 450e-9])  # R, G, B in meters
 C_VALUES = np.array([2e-12, 2.2e-12, 2.5e-12])  # Different C for each wavelength
 NU = 1.0  # Solid fraction
 L = 0.01  # Sample thickness (m)
-S_I_HAT = np.array([0.1, 0.2, 0.0])  # Incoming polarization [S1_hat, S2_hat, S3_hat]
+S_I_HAT = np.array([0.1, 0.2, 0.0])  # Incoming polarisation [S1_hat, S2_hat, S3_hat]
 
 
 def print_separator(title):
@@ -54,19 +54,19 @@ def test_stokes_components():
     return True
 
 
-def test_normalized_stokes():
-    """Test 2: Verify normalized Stokes computation."""
-    print_separator("TEST 2: Normalized Stokes Components")
+def test_normalised_stokes():
+    """Test 2: Verify normalised Stokes computation."""
+    print_separator("TEST 2: Normalised Stokes Components")
 
     S0, S1, S2 = 1.4, 0.6, 0.3
-    S1_hat, S2_hat = compute_normalized_stokes(S0, S1, S2)
+    S1_hat, S2_hat = compute_normalised_stokes(S0, S1, S2)
 
     assert np.isclose(S1_hat, S1 / S0), "S1_hat = S1/S0"
     assert np.isclose(S2_hat, S2 / S0), "S2_hat = S2/S0"
 
     print(f"  Input: S0={S0}, S1={S1}, S2={S2}")
-    print(f"  Normalized: S1_hat={S1_hat:.4f}, S2_hat={S2_hat:.4f}")
-    print("  ✓ PASSED: Normalized components correctly computed")
+    print(f"  Normalised: S1_hat={S1_hat:.4f}, S2_hat={S2_hat:.4f}")
+    print("  ✓ PASSED: Normalised components correctly computed")
     return True
 
 
@@ -146,7 +146,7 @@ def test_forward_model():
     print(
         f"  Input stress: σ_xx={sigma_xx/1e6:.2f} MPa, σ_yy={sigma_yy/1e6:.2f} MPa, σ_xy={sigma_xy/1e6:.2f} MPa"
     )
-    print(f"  Incoming polarization: [{S_I_HAT[0]:.2f}, {S_I_HAT[1]:.2f}]")
+    print(f"  Incoming polarisation: [{S_I_HAT[0]:.2f}, {S_I_HAT[1]:.2f}]")
     print("\n  Predicted Stokes for each wavelength:")
 
     for i, (wl, C) in enumerate(zip(WAVELENGTHS, C_VALUES)):
@@ -387,7 +387,7 @@ def run_all_tests():
 
     tests = [
         test_stokes_components,
-        test_normalized_stokes,
+        test_normalised_stokes,
         test_retardance,
         test_principal_angle,
         test_mueller_matrix,

@@ -464,7 +464,7 @@ def test_angular_variation(stress_magnitude=5e6, n_angles=50, use_cache=True):
                 stress_recovered[0], stress_recovered[1], stress_recovered[2]
             )
             angle_error = np.rad2deg(theta_recovered - theta)
-            # Normalize to [-45, 45] degrees
+            # Normalise to [-45, 45] degrees
             while angle_error > 45:
                 angle_error -= 90
             while angle_error < -45:

@@ -24,16 +24,19 @@ The optimiser subpackage provides three complementary approaches for stress fiel
 ### Most Common Functions
 
 **Stress Analysis:**
+
 - `solver.recover_stress_map_stokes()` - Primary method for stress recovery
 - `solver.compute_stokes_components()` - Compute Stokes parameters
-- `solver.compute_normalized_stokes()` - Normalize Stokes components
+- `solver.compute_normalised_stokes()` - Normalise Stokes components
 
 **Image Processing:**
+
 - `image.compute_retardance()` - Calculate optical retardance
 - `image.compute_principal_angle()` - Calculate principal stress angle
 - `image.mueller_matrix()` - Generate Mueller matrices
 
 **Simulation:**
+
 - `disk.simulate_four_step_polarimetry()` - Simulate photoelastic response
 
 See individual module pages for complete documentation.

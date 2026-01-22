@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from photoelastimetry.optimiser.stokes import (
-    compute_normalized_stokes,
+    compute_normalised_stokes,
     compute_principal_angle,
     compute_retardance,
     compute_solid_fraction,
@@ -30,7 +30,7 @@ def test_parameters():
         "C_values": np.array([2e-12, 2.2e-12, 2.5e-12]),  # Different C for each wavelength
         "nu": 1.0,  # Solid fraction
         "L": 0.01,  # Sample thickness (m)
-        "S_i_hat": np.array([0.1, 0.2, 0.0]),  # Incoming polarization [S1_hat, S2_hat, S3_hat]
+        "S_i_hat": np.array([0.1, 0.2, 0.0]),  # Incoming polarisation [S1_hat, S2_hat, S3_hat]
     }
 
 
@@ -77,12 +77,12 @@ class TestStokesComponents:
         assert S1 == 0.6
         assert S2 == 0.3
 
-    def test_compute_normalized_stokes(self):
-        """Test normalized Stokes components computation."""
+    def test_compute_normalised_stokes(self):
+        """Test normalised Stokes components computation."""
         S0, S1, S2 = 1.4, 0.6, 0.3
-        S1_hat, S2_hat = compute_normalized_stokes(S0, S1, S2)
+        S1_hat, S2_hat = compute_normalised_stokes(S0, S1, S2)
 
-        # Verify normalization
+        # Verify normalisation
         assert np.isclose(S1_hat, S1 / S0), "S1_hat = S1/S0"
         assert np.isclose(S2_hat, S2 / S0), "S2_hat = S2/S0"
 
@@ -90,10 +90,10 @@ class TestStokesComponents:
         assert np.isclose(S1_hat, 0.4286, rtol=1e-4)
         assert np.isclose(S2_hat, 0.2143, rtol=1e-4)
 
-    def test_compute_normalized_stokes_zero_s0(self):
-        """Test normalized Stokes components with zero S0."""
+    def test_compute_normalised_stokes_zero_s0(self):
+        """Test normalised Stokes components with zero S0."""
         # The function clips S0 to avoid division by zero, so it should return large but finite values
-        S1_hat, S2_hat = compute_normalized_stokes(0.0, 0.6, 0.3)
+        S1_hat, S2_hat = compute_normalised_stokes(0.0, 0.6, 0.3)
         # Should get finite values (function likely has protection against zero)
         assert np.isfinite(S1_hat), "S1_hat should be finite"
         assert np.isfinite(S2_hat), "S2_hat should be finite"
@@ -199,7 +199,7 @@ class TestForwardModel:
         assert np.isfinite(S1_pred), "S1 prediction should be finite"
         assert np.isfinite(S2_pred), "S2 prediction should be finite"
 
-        # Check that predictions are within reasonable range [-1, 1] for normalized Stokes
+        # Check that predictions are within reasonable range [-1, 1] for normalised Stokes
         assert -1 <= S1_pred <= 1, "S1 prediction should be in [-1, 1]"
         assert -1 <= S2_pred <= 1, "S2 prediction should be in [-1, 1]"
 

@@ -2,10 +2,10 @@
 Intensity-based stress measurement using raw polarimetric intensities.
 
 This module implements stress tensor recovery by optimizing directly on raw
-polarization intensity measurements rather than normalized Stokes components.
+polarization intensity measurements rather than normalised Stokes components.
 This approach:
 
-1. Avoids information loss from normalization
+1. Avoids information loss from normalisation
 2. Eliminates angle-wrapping ambiguities from Stokes → angle conversion
 3. Allows proper statistical modeling of detector noise (Poisson + Gaussian)
 4. Enables joint calibration of instrument parameters
@@ -20,7 +20,7 @@ from scipy.optimize import least_squares, minimize
 from tqdm import tqdm
 
 from photoelastimetry.image import (
-    compute_normalized_stokes,
+    compute_normalised_stokes,
     compute_principal_angle,
     compute_retardance,
     compute_stokes_components,
@@ -62,7 +62,7 @@ def predict_intensity(
     analyzer_angles : array-like
         Analyzer angles in radians [0, π/4, π/2, 3π/4].
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat].
     I0 : float, optional
         Incident intensity (default: 1.0).
 
@@ -144,7 +144,7 @@ def compute_intensity_residual(
     analyzer_angles : array-like
         Analyzer angles in radians [0, π/4, π/2, 3π/4].
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat].
     I0 : float, optional
         Incident intensity (default: 1.0).
     weights : ndarray, optional
@@ -222,9 +222,9 @@ def recover_stress_tensor_intensity(
     analyzer_angles : array-like, optional
         Analyzer angles in radians. Default: [0, π/4, π/2, 3π/4].
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat].
     I0 : float, optional
-        Incident intensity for normalization (default: 1.0).
+        Incident intensity for normalisation (default: 1.0).
     weights : ndarray, optional
         Weights for residuals, shape matching I_measured.
         For Poisson noise, use weights[c, i] = 1/sqrt(I_measured[c, i]).
@@ -287,7 +287,7 @@ def recover_stress_tensor_intensity(
             # Our analyzer_angles are [0, π/4, π/2, 3π/4] so ordering matches
             if len(I_data) >= 4:
                 S0, S1, S2 = compute_stokes_components(I_data[0], I_data[1], I_data[2], I_data[3])
-                S1_hat, S2_hat = compute_normalized_stokes(S0, S1, S2)
+                S1_hat, S2_hat = compute_normalised_stokes(S0, S1, S2)
                 S_m_hat[c, 0] = S1_hat
                 S_m_hat[c, 1] = S2_hat
 
@@ -411,7 +411,7 @@ def recover_stress_map_intensity(
     analyzer_angles : array-like, optional
         Analyzer angles in radians. Default: [0, π/4, π/2, 3π/4].
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat].
     I0 : float, optional
         Reference incident intensity (default: 1.0).
     use_poisson_weights : bool, optional
@@ -561,7 +561,7 @@ def compare_stokes_vs_intensity(
     analyzer_angles : array-like, optional
         Analyzer angles in radians.
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat].
     true_stress : ndarray, optional
         Ground truth stress field [H, W, 3] for validation.
 

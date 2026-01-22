@@ -345,7 +345,7 @@ def plot_optimization_history(history, S_m_hat, filename=None):
         - 'all_paths': list of dicts, each containing optimization path data
         - 'best_path_index': index of the path that led to the best solution
     S_m_hat : ndarray
-        Measured normalized Stokes components, shape (3, 2) for RGB channels.
+        Measured normalised Stokes components, shape (3, 2) for RGB channels.
         Used to show target values.
     filename : str, optional
         If provided, save figure to this filename instead of displaying.
@@ -458,7 +458,7 @@ def plot_optimization_history(history, S_m_hat, filename=None):
             label=f"{color.upper()} measured",
         )
     ax3.set_xlabel("Iteration")
-    ax3.set_ylabel("S1_hat (normalized)")
+    ax3.set_ylabel("S1_hat (normalised)")
     ax3.set_title("S1_hat Evolution - Best Path (RGB Channels)")
     ax3.legend(fontsize=8, ncol=2)
     ax3.grid(True, alpha=0.3)
@@ -484,7 +484,7 @@ def plot_optimization_history(history, S_m_hat, filename=None):
             label=f"{color.upper()} measured",
         )
     ax4.set_xlabel("Iteration")
-    ax4.set_ylabel("S2_hat (normalized)")
+    ax4.set_ylabel("S2_hat (normalised)")
     ax4.set_title("S2_hat Evolution - Best Path (RGB Channels)")
     ax4.legend(fontsize=8, ncol=2)
     ax4.grid(True, alpha=0.3)
@@ -559,7 +559,7 @@ def plot_optimization_history(history, S_m_hat, filename=None):
     ax6.bar(x_pos - width / 2, measured, width, label="Measured", alpha=0.7, color="steelblue")
     ax6.bar(x_pos + width / 2, predicted, width, label="Predicted (final)", alpha=0.7, color="coral")
     ax6.set_xlabel("Stokes Component")
-    ax6.set_ylabel("Normalized Value")
+    ax6.set_ylabel("Normalised Value")
     ax6.set_title("Final Comparison: Measured vs Predicted Stokes Components (Best Path)")
     ax6.set_xticks(x_pos)
     ax6.set_xticklabels(["R S1", "G S1", "B S1", "R S2", "G S2", "B S2"])
@@ -600,7 +600,7 @@ def plot_optimization_history_live(history, S_m_hat, fig=None, axes=None):
     history : dict
         Dictionary containing optimization history (same format as plot_optimization_history).
     S_m_hat : ndarray
-        Measured normalized Stokes components, shape (3, 2).
+        Measured normalised Stokes components, shape (3, 2).
     fig : matplotlib.figure.Figure, optional
         Existing figure to update. If None, creates new figure.
     axes : list, optional

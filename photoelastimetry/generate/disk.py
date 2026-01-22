@@ -5,7 +5,7 @@ from matplotlib.colors import LogNorm, SymLogNorm
 from tqdm import tqdm
 
 from photoelastimetry.image import (
-    compute_normalized_stokes,
+    compute_normalised_stokes,
     compute_stokes_components,
     simulate_four_step_polarimetry,
 )
@@ -152,7 +152,7 @@ def post_process_synthetic_data(
 
     # Calculate Stokes parameters from polarimetry
     S0, S1, S2 = compute_stokes_components(I0_pol, I45_pol, I90_pol, I135_pol)
-    S1_hat, S2_hat = compute_normalized_stokes(S0, S1, S2)
+    S1_hat, S2_hat = compute_normalised_stokes(S0, S1, S2)
 
     # Degree of linear polarization
     DoLP = np.sqrt(S1_hat**2 + S2_hat**2)

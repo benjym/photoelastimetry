@@ -24,7 +24,7 @@ tests/
 Tests for the Stokes-based photoelastic stress recovery:
 
 - **Stokes Components**: Computation of S0, S1, S2 from four-step polarimetry
-- **Normalized Stokes**: Normalization and edge case handling (zero S0)
+- **Normalised Stokes**: Normalisation and edge case handling (zero S0)
 - **Retardance**: Computation from stress tensor using stress-optic law
 - **Principal Angle**: Determination of stress orientation
 - **Mueller Matrix**: Wave plate birefringence modeling
@@ -34,6 +34,7 @@ Tests for the Stokes-based photoelastic stress recovery:
 - **Stress Mapping**: Full-field stress recovery from image stacks
 
 **Key Features Tested:**
+
 - Multi-wavelength RGB approach
 - Uniaxial and biaxial stress states
 - Shear stress recovery
@@ -52,6 +53,7 @@ Tests for raw intensity-based stress recovery:
 - **Stokes Comparison**: Validation against Stokes method
 
 **Key Features Tested:**
+
 - Four-step polarimetry (0°, 45°, 90°, 135°)
 - Multi-wavelength RGB measurements
 - Optimization methods (Levenberg-Marquardt, Trust Region)
@@ -70,11 +72,12 @@ Tests for synthetic photoelastic data generation:
 - **Parameter Validation**: Input checking and error handling
 
 **Key Features Tested:**
+
 - Circular disk under diametral compression
 - Brazilian disk test geometry
 - Theoretical stress field validation
 - Noise addition for realistic data
-- Multiple wavelengths and polarization states
+- Multiple wavelengths and polarisation states
 
 ### Image Processing and I/O (`test_image_io.py`)
 
@@ -89,6 +92,7 @@ Tests for image processing functions:
 - **Configuration**: JSON/JSON5 parameter files
 
 **Key Features Tested:**
+
 - Vectorized operations on arrays
 - Edge case handling (zero, inf, nan)
 - File format support
@@ -162,7 +166,7 @@ Common fixtures used across tests:
   - Stress-optic coefficients
   - Sample thickness
   - Solid fraction
-  - Incident polarization state
+  - Incident polarisation state
 
 - `sample_stress`: Representative stress tensor components
   - σ_xx, σ_yy, σ_xy values

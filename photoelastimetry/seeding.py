@@ -6,9 +6,8 @@ to provide accurate initial estimates for stress optimization algorithms.
 """
 
 import numpy as np
-from joblib import Parallel, delayed
 
-from photoelastimetry.image import compute_normalized_stokes, compute_stokes_components
+from photoelastimetry.image import compute_normalised_stokes, compute_stokes_components
 
 
 def invert_wrapped_retardance(S_m_hat):
@@ -18,26 +17,27 @@ def invert_wrapped_retardance(S_m_hat):
     Parameters
     ----------
     S_m_hat : ndarray
-        Measured normalized Stokes parameters [S1, S2] for each channel.
-        Shape: (n_wavelengths, 2)
+        Measured normalised Stokes parameters [S1, S2] for each channel.
+        Shape: (..., n_wavelengths, 2)
 
     Returns
     -------
     theta : float
         Principal stress orientation in radians [-pi/4, pi/4].
     delta_wrap : ndarray
-        Wrapped retardance [0, pi] for each channel. Shape: (n_wavelengths,)
+        Wrapped retardance [0, pi] for each channel. Shape: (..., n_wavelengths)
     """
 
-    s1 = S_m_hat[:, 0]
-    s2 = S_m_hat[:, 1]
+    s1 = S_m_hat[..., 0]
+    s2 = S_m_hat[..., 1]
 
     # Use vector averaging for angle to handle wrap-around and weight by signal strength
     # 2*theta = atan2(1-s1, s2)
     # Vectors are v = [s2, 1-s1] (x, y)
     # Summing vectors weighs them by their magnitude (approx sin^2(delta/2))
-    x_sum = np.sum(s2)
-    y_sum = np.sum(1 - s1)
+    # Sum over wavelengths (last axis of s1/s2)
+    x_sum = np.sum(s2, axis=-1)
+    y_sum = np.sum(1 - s1, axis=-1)
 
     theta_mean = 0.5 * np.arctan2(y_sum, x_sum)
 
@@ -49,12 +49,14 @@ def invert_wrapped_retardance(S_m_hat):
     raw_magnitude = np.sqrt((1 - s1) ** 2 + s2**2) / 2
 
     # Avoid division by zero at isoclinics
-    if sin_2theta > 1e-3:
-        sin_sq_delta_2 = raw_magnitude / sin_2theta
-    else:
-        # At isoclinics, we cannot recover retardance reliably.
-        # Fallback or keep as 0 (effectively what raw_magnitude gives, scaled)
-        sin_sq_delta_2 = raw_magnitude
+    # sin_2theta needs to broadcast against raw_magnitude (..., n_wl)
+    # theta_mean is (...,) so sin_2theta is (...,)
+    sin_2theta_expanded = sin_2theta[..., np.newaxis]
+
+    # Use where to handle safe division
+    sin_sq_delta_2 = np.divide(raw_magnitude, sin_2theta_expanded, where=(sin_2theta_expanded > 1e-3))
+    # If too close to isoclinic, fallback to raw_magnitude (or just 0 really, but raw is safer)
+    sin_sq_delta_2 = np.where(sin_2theta_expanded <= 1e-3, raw_magnitude, sin_sq_delta_2)
 
     # Clamp to [0, 1] for numerical stability
     sin_sq_delta_2 = np.clip(sin_sq_delta_2, 0, 1)
@@ -72,8 +74,8 @@ def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma
     Parameters
     ----------
     delta_wrap : ndarray
-        Wrapped retardance for each wavelength.
-    theta : float
+        Wrapped retardance for each wavelength. Shape (..., n_wavelengths)
+    theta : float or ndarray
         Orientation angle.
     wavelengths : ndarray
         Wavelengths in meters.
@@ -90,60 +92,92 @@ def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma
 
     Returns
     -------
-    delta_sigma : float
+    delta_sigma : float or ndarray
         Estimated stress difference.
     """
-    n_channels = len(wavelengths)
-
-    # Stress proxy factor: x = 2*pi*C*nu*L * delta_sigma
-    # delta = (2*pi*C*nu*L / lambda) * delta_sigma
-    # delta_sigma = lambda * delta / (2*pi*C*nu*L)
-    # delta_total = delta_wrap + 2*pi*n
-
-    # Convert inputs to numpy arrays to ensure element-wise operations work
+    # Ensure inputs are arrays
+    delta_wrap = np.asarray(delta_wrap)
     wavelengths = np.asarray(wavelengths)
     C_values = np.asarray(C_values)
+
+    n_channels = wavelengths.shape[0]
+    base_shape = delta_wrap.shape[:-1]
+
+    # Flatten pixel dimensions for vectorized processing
+    if len(base_shape) > 0:
+        n_pixels = np.prod(base_shape)
+        d_wrap_flat = delta_wrap.reshape(n_pixels, n_channels)
+    else:
+        n_pixels = 1
+        d_wrap_flat = delta_wrap.reshape(1, n_channels)
 
     # Calculate factor for delta -> sigma conversion
     factor = wavelengths / (2 * np.pi * C_values * nu * L)
 
-    best_var = float("inf")
-    best_delta_sigma = 0.0
+    # Pre-generate search strategies for one channel
+    # Strategy = (shift_value, sign_multiplier) where stress ~ factor * (shift + sign*delta)
+    # Pos branch: 2*pi*n + delta  -> shift=2*pi*n, sign=1
+    # Neg branch: 2*pi*(n+1) - delta -> shift=2*pi*(n+1), sign=-1
 
-    # Generate candidates using both phase branches
-    # D_pos = 2*pi*n + delta_wrap
-    # D_neg = 2*pi*(n+1) - delta_wrap (assuming delta is positive and delta_wrap in [0, pi])
-    channel_candidates = []
+    n_vals = np.arange(n_max + 1)
+    # Lists of (shift, sign) tuples
+    single_channel_strategies = []
+
+    for n in n_vals:
+        single_channel_strategies.append((2 * np.pi * n, 1.0))  # Positive branch
+    for n in n_vals:
+        single_channel_strategies.append((2 * np.pi * (n + 1), -1.0))  # Negative branch
+
+    # We need a strategy choice for each channel
+    # strategies per channel
+    channel_strategies = [single_channel_strategies] * n_channels
+
     import itertools
 
-    for c in range(n_channels):
-        n_vals = np.arange(n_max + 1)
-        d_pos = 2 * np.pi * n_vals + delta_wrap[c]
-        d_neg = 2 * np.pi * (n_vals + 1) - delta_wrap[c]
+    best_var = np.full(n_pixels, np.inf)
+    best_delta_sigma = np.zeros(n_pixels)
 
-        cands = np.concatenate([d_pos, d_neg])
-        stress_cands = factor[c] * cands
+    # Iterate over all combinations of strategies across channels
+    # total combinations = (2*(n_max+1))^3. For n_max=6, ~2700 combos.
+    for combo in itertools.product(*channel_strategies):
+        # combo is tuple of (shift, sign) for each channel
 
-        # Filter individually by max stress
+        # Calculate stress for all pixels for this strategy combination
+        # stress shape: (n_pixels, n_channels)
+        stresses = np.zeros((n_pixels, n_channels))
+
+        for c in range(n_channels):
+            shift, sign = combo[c]
+            stresses[:, c] = factor[c] * (shift + sign * d_wrap_flat[:, c])
+
+        # Filter by sigma_max
         if sigma_max is not None:
-            stress_cands = stress_cands[stress_cands < sigma_max * 1.5]  # Allow some buffer
-        channel_candidates.append(stress_cands)
+            # Check if all channels are within reasonable bounds
+            valid_mask = np.all(stresses < sigma_max * 1.5, axis=1)
+        else:
+            valid_mask = np.ones(n_pixels, dtype=bool)
 
-    if not all(len(c) > 0 for c in channel_candidates):
-        return 0.0
+        if not np.any(valid_mask):
+            continue
 
-    best_var = float("inf")
-    best_delta_sigma = 0.0
+        # Compute variance for estimating consistency
+        # Calculate only for valid pixels to save time?
+        # Numpy is fast enough to do all, then mask.
+        variance = np.var(stresses, axis=1)
+        median_stress = np.median(stresses, axis=1)
 
-    # Search combinations
-    for stress_set in itertools.product(*channel_candidates):
-        stress_vals = np.array(stress_set)
-        var = np.var(stress_vals)
-        if var < best_var:
-            best_var = var
-            best_delta_sigma = np.median(stress_vals)
+        # Update best
+        update_locs = valid_mask & (variance < best_var)
 
-    return best_delta_sigma
+        if np.any(update_locs):
+            best_var[update_locs] = variance[update_locs]
+            best_delta_sigma[update_locs] = median_stress[update_locs]
+
+    # Reshape back to original shape
+    if len(base_shape) > 0:
+        return best_delta_sigma.reshape(base_shape)
+    else:
+        return best_delta_sigma.item()
 
 
 def initialize_stress_tensor(delta_sigma, theta):
@@ -176,13 +210,6 @@ def initialize_stress_tensor(delta_sigma, theta):
     return np.array([sigma_xx, sigma_yy, sigma_xy])
 
 
-def _process_pixel(s_hat, wavelengths, C_values, nu, L, sigma_max, n_max):
-    """Helper for parallel processing."""
-    theta, delta_wrap = invert_wrapped_retardance(s_hat)
-    delta_sigma = resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma_max, n_max)
-    return initialize_stress_tensor(delta_sigma, theta)
-
-
 def phase_decomposed_seeding(
     data,
     wavelengths,
@@ -210,13 +237,13 @@ def phase_decomposed_seeding(
     L : float
         Sample thickness in meters.
     S_i_hat : ndarray
-        Incoming normalized Stokes vector.
+        Incoming normalised Stokes vector.
     sigma_max : float, optional
         Maximum allowed stress difference (Pa).
     n_max : int
         Maximum fringe order to search.
     n_jobs : int
-        Number of parallel jobs.
+        Deprecated. Number of parallel jobs (no longer used due to vectorization).
 
     Returns
     -------
@@ -226,9 +253,9 @@ def phase_decomposed_seeding(
     # Flatten data for processing
     H, W = data.shape[:2]
 
-    # Compute normalized Stokes for all pixels
-    # Function signature: compute_normalized_stokes(data, S_i_hat) -> S_m_hat (H, W, n_wl, 2)
-    # Note: image.compute_normalized_stokes expects specific data format.
+    # Compute normalised Stokes for all pixels
+    # Function signature: compute_normalised_stokes(data, S_i_hat) -> S_m_hat (H, W, n_wl, 2)
+    # Note: image.compute_normalised_stokes expects specific data format.
     # Assuming standard format (H, W, n_wl, n_angles)
 
     I_0 = data[..., 0]
@@ -237,15 +264,23 @@ def phase_decomposed_seeding(
     I_135 = data[..., 3]
 
     S0, S1, S2 = compute_stokes_components(I_0, I_45, I_90, I_135)
-    S1_hat, S2_hat = compute_normalized_stokes(S0, S1, S2)
+    S1_hat, S2_hat = compute_normalised_stokes(S0, S1, S2)
     S_m_hat = np.stack([S1_hat, S2_hat], axis=-1)
 
-    # Reshape for parallel processing
+    # Reshape for vectorized processing
     S_flat = S_m_hat.reshape(-1, S_m_hat.shape[-2], S_m_hat.shape[-1])
 
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(_process_pixel)(s, wavelengths, C_values, nu, L, sigma_max, n_max) for s in S_flat
-    )
+    # Vectorized inversion
+    theta, delta_wrap = invert_wrapped_retardance(S_flat)
 
-    stress_map = np.array(results).reshape(H, W, 3)
+    # Vectorized fringe resolution
+    delta_sigma = resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma_max, n_max)
+
+    # Vectorized stress tensor construction
+    # initialize_stress_tensor returns (3, N)
+    stress_components = initialize_stress_tensor(delta_sigma, theta)
+
+    # Reshape to (H, W, 3)
+    stress_map = np.moveaxis(stress_components, 0, -1).reshape(H, W, 3)
+
     return stress_map

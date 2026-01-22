@@ -225,13 +225,13 @@ def compute_stokes_components(I_0, I_45, I_90, I_135):
     Parameters
     ----------
     I_0 : array-like
-        Intensity at polarizer angle 0 degrees.
+        Intensity at polariser angle 0 degrees.
     I_45 : array-like
-        Intensity at polarizer angle 45 degrees.
+        Intensity at polariser angle 45 degrees.
     I_90 : array-like
-        Intensity at polarizer angle 90 degrees.
+        Intensity at polariser angle 90 degrees.
     I_135 : array-like
-        Intensity at polarizer angle 135 degrees.
+        Intensity at polariser angle 135 degrees.
 
     Returns
     -------
@@ -248,9 +248,9 @@ def compute_stokes_components(I_0, I_45, I_90, I_135):
     return S0, S1, S2
 
 
-def compute_normalized_stokes(S0, S1, S2):
+def compute_normalised_stokes(S0, S1, S2):
     """
-    Compute normalized Stokes vector components.
+    Compute normalised Stokes vector components.
 
     Parameters
     ----------
@@ -264,9 +264,9 @@ def compute_normalized_stokes(S0, S1, S2):
     Returns
     -------
     S1_hat : array-like
-        Normalized S1 component (S1/S0).
+        Normalised S1 component (S1/S0).
     S2_hat : array-like
-        Normalized S2 component (S2/S0).
+        Normalised S2 component (S2/S0).
     """
     S0_safe = np.where(S0 == 0, 1e-10, S0)
     S1_hat = S1 / S0_safe
@@ -296,7 +296,7 @@ def simulate_four_step_polarimetry(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavel
     wavelength : float
         Wavelength of light (m).
     S_i_hat : array-like
-        Incoming normalized Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+        Incoming normalised Stokes vector [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
     I0 : float
         Incident light intensity (default: 1.0).
 
@@ -313,7 +313,7 @@ def simulate_four_step_polarimetry(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavel
     # Create full incoming Stokes vector
     S_i_hat = np.asarray(S_i_hat)
     if len(S_i_hat) == 2:
-        # Backward compatibility: assume S3 = 0 (no circular polarization)
+        # Backward compatibility: assume S3 = 0 (no circular polarisation)
         S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
     elif len(S_i_hat) == 3:
         # Use provided circular component

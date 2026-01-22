@@ -49,7 +49,7 @@ The JSON5 parameter file should contain:
 - `C`: Stress-optic coefficient in 1/Pa
 - `thickness`: Sample thickness in meters
 - `wavelengths`: List of wavelengths in nanometers
-- `S_i_hat`: Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat] representing polarization state
+- `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
 - `crop` (optional): Crop region as [y1, y2, x1, x2]
 - `debug` (optional): If true, display all channels for debugging
 
@@ -152,6 +152,7 @@ pytest -n auto
 View the coverage report by opening `htmlcov/index.html` in your browser after running tests with coverage enabled.
 
 Current test coverage includes:
+
 - Stokes solver: photoelastic stress recovery using normalised Stokes parameters
 - Intensity solver: raw intensity-based stress recovery with noise modelling
 - Equilibrium solver: global stress field recovery enforcing mechanical equilibrium
@@ -173,6 +174,7 @@ flake8 photoelastimetry
 ### Continuous Integration
 
 GitHub Actions automatically runs tests on:
+
 - Python 3.9, 3.10, 3.11, and 3.12
 - Multiple operating systems (Ubuntu)
 - Every push and pull request

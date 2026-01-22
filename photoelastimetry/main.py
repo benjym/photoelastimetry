@@ -18,7 +18,7 @@ def image_to_stress(params, output_filename=None):
     Convert photoelastic images to stress maps.
 
     This function processes raw photoelastic data to recover stress distribution maps
-    using the stress-optic law and polarization analysis.
+    using the stress-optic law and polarisation analysis.
 
     Args:
         params (dict): Configuration dictionary containing:
@@ -29,7 +29,7 @@ def image_to_stress(params, output_filename=None):
             - C (float): Stress-optic coefficient in 1/Pa
             - thickness (float): Sample thickness in meters
             - wavelengths (list): List of wavelengths in nanometers
-            - S_i_hat (list): Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat]
+            - S_i_hat (list): Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat]
         output_filename (str, optional): Path to save the output stress map image.
             If None, the stress map is not saved. Defaults to None. Can also be specified in params.
 
@@ -37,7 +37,7 @@ def image_to_stress(params, output_filename=None):
         numpy.ndarray: 2D array representing the stress map in Pascals.
 
     Notes:
-        - Assumes incoming light is fully S1 polarized
+        - Assumes incoming light is fully S1 polarised
         - Uses uniform stress-optic coefficient across all wavelengths
         - Assumes solid sample (NU = 1.0)
         - Wavelengths are automatically converted from nm to meters
@@ -88,7 +88,7 @@ def image_to_stress(params, output_filename=None):
             C,
         ]  # Stress-optic coefficients in 1/Pa
 
-    # Get incoming polarization state from config
+    # Get incoming polarisation state from config
     S_I_HAT = np.array(params["S_i_hat"])
     # Ensure it's 3 elements for consistency
     if len(S_I_HAT) == 2:
@@ -289,7 +289,7 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
     De-mosaic a raw polarimetric image and save to TIFF stack or individual PNGs.
 
     This function takes a raw image from a polarimetric camera with a 4x4 superpixel
-    pattern and splits it into separate channels for each color and polarization angle.
+    pattern and splits it into separate channels for each color and polarisation angle.
 
     Args:
         input_file (str): Path to the raw image file.
@@ -306,13 +306,13 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
         numpy.ndarray: De-mosaiced image stack of shape [H, W, 4, 4] where:
             - H, W are the de-mosaiced dimensions (1/4 of original)
             - First dimension 4: color channels (R, G1, G2, B)
-            - Second dimension 4: polarization angles (0°, 45°, 90°, 135°)
+            - Second dimension 4: polarisation angles (0°, 45°, 90°, 135°)
 
     Notes:
-        - The raw image uses a 4x4 superpixel pattern with interleaved polarization
+        - The raw image uses a 4x4 superpixel pattern with interleaved polarisation
           and color filters
         - Output TIFF stack has shape [H, W, 4, 4] with all channels
-        - Output PNGs create 4 files (one per polarization angle) with shape [H, W, 4]
+        - Output PNGs create 4 files (one per polarisation angle) with shape [H, W, 4]
           showing all color channels
     """
     # Read raw image
@@ -338,7 +338,7 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
         tifffile.imwrite(
             output_file, demosaiced_transposed.astype(np.uint16), imagej=True, metadata={"axes": "TCYX"}
         )
-        # print(f"Saved TIFF stack to {output_file} (4 polarization angles × 3 color channels)")
+        # print(f"Saved TIFF stack to {output_file} (4 polarisation angles × 3 color channels)")
     elif output_format.lower() == "png":
         import matplotlib.pyplot as plt
 
@@ -346,12 +346,12 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
         for i, angle in enumerate(angle_names):
             output_file = f"{output_prefix}_{angle}.png"
 
-            # Normalize to 0-1 for PNG
+            # Normalise to 0-1 for PNG
             # HARDCODED: 4096 for 12-bit images
             img = demosaiced[:, :, :, i] / 4096
 
             plt.imsave(output_file, img)
-            # print(f"Saved {angle} polarization to {output_file}")
+            # print(f"Saved {angle} polarisation to {output_file}")
     else:
         raise ValueError(f"Unsupported output format: {output_format}. Use 'tiff' or 'png'.")
 

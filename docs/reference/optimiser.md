@@ -8,8 +8,8 @@ The optimiser subpackage provides multiple approaches for recovering stress fiel
 
 Three complementary stress inversion methods are available:
 
-1. **Stokes-based optimiser** - Uses normalized Stokes components for pixel-wise inversion (recommended for most cases)
-2. **Intensity-based optimiser** - Works directly with raw polarization intensities
+1. **Stokes-based optimiser** - Uses normalised Stokes components for pixel-wise inversion (recommended for most cases)
+2. **Intensity-based optimiser** - Works directly with raw polarisation intensities
 3. **Equilibrium optimiser** - Global inversion enforcing mechanical equilibrium via Airy stress function
 
 ::: photoelastimetry.optimiser

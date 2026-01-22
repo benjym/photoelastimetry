@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from photoelastimetry.optimiser.stokes import (
-    compute_normalized_stokes,
+    compute_normalised_stokes,
     compute_stokes_components,
     predict_stokes,
     recover_stress_tensor,
