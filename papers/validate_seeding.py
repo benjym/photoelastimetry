@@ -144,7 +144,7 @@ for c in range(3):
 plt.xlabel(r"$\Delta\sigma/\sigma_\mathrm{max}$ (-)")
 plt.ylabel("Intensity (a.u.)")
 plt.text(-0.11, 1.0, "(a)", transform=plt.gca().transAxes)
-plt.savefig("seeding_validation.png", dpi=300)
+plt.savefig("papers/seeding_validation.png", dpi=300)
 
 print("Done plotting retardance curves, now plotting heatmaps.")
 
@@ -173,12 +173,12 @@ plt.pcolormesh(
     norm=LogNorm(vmin=1e-3, vmax=1e0),
     rasterized=True,
 )
-plt.colorbar(label="Median error", extend="both")
+plt.colorbar(label="Median relative error", extend="both")
 plt.xscale("log")
 plt.xlabel("Signal-to-noise ratio (SnR)")
 plt.ylabel(r"$\Delta\sigma/\sigma_\mathrm{max}$ (-)")  # (")
 plt.text(-0.32, 1.05, "(b)", transform=plt.gca().transAxes)
-plt.savefig("seeding_validation.png", dpi=300)
+plt.savefig("papers/seeding_validation.png", dpi=300)
 
 print("Done plotting stress level heatmap, now angle heatmap.")
 
@@ -211,22 +211,22 @@ plt.pcolormesh(
     norm=LogNorm(vmin=1e-3, vmax=1e0),
     rasterized=True,
 )
-plt.colorbar(label="Median error", extend="both")
+plt.colorbar(label="Median relative error", extend="both")
 plt.xscale("log")
 plt.yticks([0, np.pi / 4, np.pi / 2], ["0", r"$\pi/4$", r"$\pi/2$"])
 plt.xlabel("Signal-to-noise ratio (SnR)")
 plt.ylabel(r"Angle ($\theta$)")
 plt.text(-0.32, 1.05, "(c)", transform=plt.gca().transAxes)
 
-print("Saving figure to seeding_validation.png")
+print("Saving figure to papers/seeding_validation.png & pdf")
 plt.subplots_adjust(left=0.10, bottom=0.11, right=0.94, top=0.97, hspace=0.5, wspace=0.475)
 # plt.show()
-plt.savefig("seeding_validation.pdf", dpi=300)
-plt.savefig("seeding_validation.png", dpi=300)
+plt.savefig("papers/seeding_validation.pdf", dpi=300)
+plt.savefig("papers/seeding_validation.png", dpi=300)
 
 
 # copy to dropbox
 shutil.copy(
-    "seeding_validation.pdf",
+    "papers/seeding_validation.pdf",
     os.path.expanduser("~/Dropbox/Apps/Overleaf/RGB Granular Photoelasticity/images/seeding_validation.pdf"),
 )

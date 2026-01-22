@@ -184,4 +184,3 @@ Test coverage is automatically uploaded to Codecov for tracking.
 ## Authors
 
 - [Benjy Marks](mailto:benjy.marks@sydney.edu.au)
-- [Qianyu Fang](mailto:qianyu.fang@sydney.edu.au)
