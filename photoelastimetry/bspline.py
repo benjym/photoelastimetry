@@ -129,10 +129,9 @@ class BSplineAiry:
         sigma_yy = self.By @ C @ self.ddBx.T
 
         # sigma_xy = -d^2(phi)/dxdy = -(By' * C * Bx'.T)
-        # We assume the coordinate system for derivatives (Image coords)
-        # aligns with the physical domain (or we simply solve the PDE in image space).
-        # Thus the standard definition holds: sigma_xy = - Phi_xy
-        sigma_xy = -self.dBy @ C @ self.dBx.T
+        # Note: In image coordinates (y positive down), the coordinate transform yields:
+        # sigma_xy = d^2(phi)/dx_img dy_img (positive sign due to y-axis flip)
+        sigma_xy = self.dBy @ C @ self.dBx.T
 
         return sigma_xx, sigma_yy, sigma_xy
 
@@ -160,9 +159,9 @@ class BSplineAiry:
         # Contributions from sigma_yy = By @ C @ ddBx.T
         grad_C += self.By.T @ grad_s_yy @ self.ddBx
 
-        # Contributions from sigma_xy = -dBy @ C @ dBx.T
-        # Note the negative sign from the forward pass
-        grad_C -= self.dBy.T @ grad_s_xy @ self.dBx
+        # Contributions from sigma_xy = dBy @ C @ dBx.T
+        # Note: positive sign (no negative) due to coordinate transform
+        grad_C += self.dBy.T @ grad_s_xy @ self.dBx
 
         return grad_C.flatten()
 

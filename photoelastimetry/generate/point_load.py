@@ -85,10 +85,10 @@ def boussinesq_stress_cartesian(X, Y, P, nu_poisson=0.3):
     )
 
     # Set stress to zero above the surface (y < 0)
-    # above_surface = Y < 0
-    # sigma_xx[above_surface] = 0
-    # sigma_yy[above_surface] = 0
-    # tau_xy[above_surface] = 0
+    above_surface = Y < 0
+    sigma_xx[above_surface] = 0
+    sigma_yy[above_surface] = 0
+    tau_xy[above_surface] = 0
 
     return sigma_xx, sigma_yy, tau_xy
 
