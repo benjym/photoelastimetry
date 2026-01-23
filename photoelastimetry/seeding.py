@@ -231,7 +231,7 @@ def phase_decomposed_seeding(
     S_i_hat=None,
     sigma_max=None,
     n_max=6,
-    n_jobs=-1,
+    K=0.5,
 ):
     """
     Compute initial stress guess using phase decomposed seeding method.
@@ -254,8 +254,8 @@ def phase_decomposed_seeding(
         Maximum allowed stress difference (Pa).
     n_max : int
         Maximum fringe order to search.
-    n_jobs : int
-        Deprecated. Number of parallel jobs (no longer used due to vectorization).
+    K : float, optional. Default=0.5
+        Principal stress ratio for initialisation.
 
     Returns
     -------
@@ -290,7 +290,7 @@ def phase_decomposed_seeding(
 
     # Vectorized stress tensor construction
     # initialise_stress_tensor returns (3, N)
-    stress_components = initialise_stress_tensor(delta_sigma, theta, 0.6)
+    stress_components = initialise_stress_tensor(delta_sigma, theta, K)
 
     # Reshape to (H, W, 3)
     stress_map = np.moveaxis(stress_components, 0, -1).reshape(H, W, 3)
