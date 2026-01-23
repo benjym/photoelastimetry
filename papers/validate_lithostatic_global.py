@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from photoelastimetry.generate.lithostatic import generate_synthetic_lithostatic
-from photoelastimetry.optimiser.equilibrium import recover_stress_global
+
+# from photoelastimetry.optimiser.equilibrium import recover_stress_global
 from photoelastimetry.optimiser.equilibrium_mean_stress import recover_mean_stress
 from photoelastimetry.seeding import phase_decomposed_seeding
 from photoelastimetry.visualisation import print_boundary_conditions

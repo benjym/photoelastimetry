@@ -269,4 +269,4 @@ plt.title("Error Principal Angle")
 plt.colorbar()
 
 plt.savefig("papers/validate_point_load.png", dpi=300)
-print(f"Saved plot to papers/validate_point_load.png")
+print("Saved plot to papers/validate_point_load.png")

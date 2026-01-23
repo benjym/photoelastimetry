@@ -263,12 +263,6 @@ def recover_mean_stress(
         if verbose and iteration_count[0] % 10 == 0:
             print(f"Mean Stress Solver Iteration {iteration_count[0]}, Loss: {loss:.6e}", end="\r")
 
-        if debug and iteration_count[0] % 50 == 1:
-            import matplotlib.pyplot as plt
-
-            # minimal debug plotting (optional)
-            pass
-
         return loss, grad_coeffs
 
     # Initialize coefficients
