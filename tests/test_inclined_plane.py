@@ -85,7 +85,9 @@ class TestInclinedStressField:
 
         # Vertical stress should increase linearly with depth
         expected_sigma_yy = test_parameters["rho"] * test_parameters["g"] * Y
-        assert np.allclose(sigma_yy, expected_sigma_yy, rtol=1e-10), "sigma_yy should match lithostatic for theta=0"
+        assert np.allclose(
+            sigma_yy, expected_sigma_yy, rtol=1e-10
+        ), "sigma_yy should match lithostatic for theta=0"
 
         # Horizontal stress should be K0 times vertical stress
         expected_sigma_xx = test_parameters["K0"] * expected_sigma_yy
@@ -290,7 +292,9 @@ class TestParameterValidation:
             g_y = test_parameters["g"] * np.cos(np.deg2rad(theta_deg))
             expected_sigma_yy = test_parameters["rho"] * g_y * Y
             expected_sigma_xx = K0 * expected_sigma_yy
-            assert np.allclose(sigma_xx, expected_sigma_xx, rtol=1e-10), f"sigma_xx relationship should hold for K0={K0}"
+            assert np.allclose(
+                sigma_xx, expected_sigma_xx, rtol=1e-10
+            ), f"sigma_xx relationship should hold for K0={K0}"
 
 
 if __name__ == "__main__":
