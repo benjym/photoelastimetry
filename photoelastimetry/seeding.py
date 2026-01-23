@@ -26,7 +26,7 @@ def invert_wrapped_retardance(S_m_hat, S_i_hat=None):
     Returns
     -------
     theta : float
-        Principal stress orientation in radians [-pi/4, pi/4].
+        Principal stress orientation in radians [0, pi/2].
     delta_wrap : ndarray
         Wrapped retardance [0, pi] for each channel. Shape: (..., n_wavelengths)
     """

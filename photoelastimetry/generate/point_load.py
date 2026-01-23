@@ -72,23 +72,23 @@ def boussinesq_stress_cartesian(X, Y, P, nu_poisson=0.3):
     r5 = r**5
 
     # Stress components
-    sigma_xx = -(P / (2 * np.pi)) * (
+    sigma_xx = (P / (2 * np.pi)) * (
         (1 - 2 * nu_poisson) * (Y_safe / r3 - X_safe**2 * Y_safe / r5) - 3 * X_safe**2 * Y_safe / r5
     )
 
-    sigma_yy = -(P / (2 * np.pi)) * (
+    sigma_yy = (P / (2 * np.pi)) * (
         (1 - 2 * nu_poisson) * (Y_safe / r3 - Y_safe**3 / r5) - 3 * Y_safe**3 / r5
     )
 
-    tau_xy = -(P / (2 * np.pi)) * (
+    tau_xy = (P / (2 * np.pi)) * (
         (1 - 2 * nu_poisson) * (-X_safe / r3 + X_safe * Y_safe**2 / r5) - 3 * X_safe * Y_safe**2 / r5
     )
 
     # Set stress to zero above the surface (y < 0)
-    above_surface = Y < 0
-    sigma_xx[above_surface] = 0
-    sigma_yy[above_surface] = 0
-    tau_xy[above_surface] = 0
+    # above_surface = Y < 0
+    # sigma_xx[above_surface] = 0
+    # sigma_yy[above_surface] = 0
+    # tau_xy[above_surface] = 0
 
     return sigma_xx, sigma_yy, tau_xy
 

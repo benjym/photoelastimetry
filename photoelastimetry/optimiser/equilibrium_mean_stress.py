@@ -24,7 +24,8 @@ def recover_mean_stress(
     boundary_mask=None,
     boundary_values=None,
     boundary_weight=1.0,
-    regularization_weight=0.0,
+    regularisation_weight=0.0,
+    regularisation_order=2,
     external_potential=None,
     max_iterations=100,
     tolerance=1e-5,
@@ -52,8 +53,8 @@ def recover_mean_stress(
         Only pixels where boundary_mask is True are used.
     boundary_weight : float
         Weight for boundary condition penalty.
-    regularization_weight : float
-        Weight for smoothness regularization on B-spline coefficients.
+    regularisation_weight : float
+        Weight for smoothness regularisation on B-spline coefficients.
     external_potential : ndarray, optional
         Scalar field V(x,y) [H, W] representing body force potential (e.g. -rho*g*y).
         This field is added to sigma_xx and sigma_yy:
@@ -212,26 +213,52 @@ def recover_mean_stress(
                 grad_s_yy += 2 * mask_w * s_yy
                 grad_s_xy += 4 * mask_w * s_xy
 
-        # Regularization (Smoothness of coefficients)
+        # regularisation (Smoothness of coefficients)
         grad_coeffs = bspline.project_stress_gradients(grad_s_xx, grad_s_yy, grad_s_xy)
 
-        if regularization_weight > 0:
+        if regularisation_weight > 0:
             C_grid = coeffs_flat.reshape(bspline.n_coeffs_y, bspline.n_coeffs_x)
-            diff_y = np.diff(C_grid, axis=0)
-            diff_x = np.diff(C_grid, axis=1)
-
-            reg_term = np.sum(diff_y**2) + np.sum(diff_x**2)
-            loss += regularization_weight * reg_term
 
             grad_reg_y = np.zeros_like(C_grid)
-            grad_reg_y[:-1, :] -= 2 * diff_y
-            grad_reg_y[1:, :] += 2 * diff_y
-
             grad_reg_x = np.zeros_like(C_grid)
-            grad_reg_x[:, :-1] -= 2 * diff_x
-            grad_reg_x[:, 1:] += 2 * diff_x
+            reg_term = 0.0
 
-            grad_coeffs += regularization_weight * (grad_reg_y + grad_reg_x).flatten()
+            if regularisation_order == 1:
+                # 1st order difference (Gradient penalty)
+                diff_y = np.diff(C_grid, axis=0)
+                diff_x = np.diff(C_grid, axis=1)
+
+                reg_term = np.sum(diff_y**2) + np.sum(diff_x**2)
+                loss += regularisation_weight * reg_term
+
+                grad_reg_y[:-1, :] -= 2 * diff_y
+                grad_reg_y[1:, :] += 2 * diff_y
+                grad_reg_x[:, :-1] -= 2 * diff_x
+                grad_reg_x[:, 1:] += 2 * diff_x
+
+            elif regularisation_order == 2:
+                # 2nd order difference (Curvature penalty)
+                if C_grid.shape[0] > 2:
+                    diff2_y = np.diff(C_grid, n=2, axis=0)
+                    reg_term += np.sum(diff2_y**2)
+
+                    term_y = 2 * diff2_y
+                    grad_reg_y[:-2, :] += term_y
+                    grad_reg_y[1:-1, :] -= 2 * term_y
+                    grad_reg_y[2:, :] += term_y
+
+                if C_grid.shape[1] > 2:
+                    diff2_x = np.diff(C_grid, n=2, axis=1)
+                    reg_term += np.sum(diff2_x**2)
+
+                    term_x = 2 * diff2_x
+                    grad_reg_x[:, :-2] += term_x
+                    grad_reg_x[:, 1:-1] -= 2 * term_x
+                    grad_reg_x[:, 2:] += term_x
+
+                loss += regularisation_weight * reg_term
+
+            grad_coeffs += regularisation_weight * (grad_reg_y + grad_reg_x).flatten()
 
         if verbose and iteration_count[0] % 10 == 0:
             print(f"Mean Stress Solver Iteration {iteration_count[0]}, Loss: {loss:.6e}", end="\r")
