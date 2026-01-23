@@ -8,6 +8,7 @@ to provide accurate initial estimates for stress optimization algorithms.
 import numpy as np
 
 from photoelastimetry.image import compute_normalised_stokes, compute_stokes_components
+from photoelastimetry.unwrapping import unwrap_angles_graph_cut
 
 
 def invert_wrapped_retardance(S_m_hat, S_i_hat=None):
@@ -288,10 +289,16 @@ def phase_decomposed_seeding(
     # Vectorized fringe resolution
     delta_sigma = resolve_fringe_orders(delta_wrap, wavelengths, C_values, nu, L, sigma_max, n_max)
 
+    # Unflatten theta and delta_sigma
+    theta = theta.reshape(H, W)
+    delta_sigma = delta_sigma.reshape(H, W)
+
+    # Unwrap angles
+    unwrapped_theta = unwrap_angles_graph_cut(theta, quality=delta_sigma)
+
     # Vectorized stress tensor construction
     # initialise_stress_tensor returns (3, N)
-    stress_components = initialise_stress_tensor(delta_sigma, theta, K)
-
+    stress_components = initialise_stress_tensor(delta_sigma.flatten(), unwrapped_theta.flatten(), K)
     # Reshape to (H, W, 3)
     stress_map = np.moveaxis(stress_components, 0, -1).reshape(H, W, 3)
 

@@ -17,6 +17,7 @@ dependencies = [
     "json5",
     "tifffile",
     "joblib",
+    "PyMaxflow",
 ]
 
 [project.optional-dependencies]
