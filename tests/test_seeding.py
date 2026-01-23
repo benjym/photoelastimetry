@@ -47,7 +47,7 @@ def test_invert_wrapped_retardance():
     if S_m_hat.shape[0] == 2:
         S_m_hat = S_m_hat.T  # (N_wl, 2)
 
-    theta_rec, delta_wrap_rec = invert_wrapped_retardance(S_m_hat)
+    theta_rec, delta_wrap_rec = invert_wrapped_retardance(S_m_hat, S_I_HAT)
 
     # Orientation ambiguity: theta or theta - pi/2
     diff = np.abs(theta_rec - theta_true)
@@ -66,9 +66,7 @@ def test_resolve_fringe_orders():
     # We simulate what invert_wrapped_retardance produces: 2*asin(|sin(delta/2)|)
     delta_folded = 2 * np.arcsin(np.abs(np.sin(deltas / 2)))
 
-    rec_sigma = resolve_fringe_orders(
-        delta_folded, theta_true, WAVELENGTHS, C_VALUES, NU, L, sigma_max=10e6, n_max=6
-    )
+    rec_sigma = resolve_fringe_orders(delta_folded, WAVELENGTHS, C_VALUES, NU, L, sigma_max=10e6, n_max=6)
 
     print(f"True: {sigma_diff}, Rec: {rec_sigma}")
     assert np.isclose(rec_sigma, sigma_diff, rtol=0.1)

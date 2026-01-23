@@ -106,11 +106,9 @@ def test_seeding_batch(
     S_m_hat = np.stack([S1_hat, S2_hat], axis=-1)
 
     # Use seeding procedure to estimate initial stress tensor
-    theta_est, delta_wrap = invert_wrapped_retardance(S_m_hat)
+    theta_est, delta_wrap = invert_wrapped_retardance(S_m_hat, S_i_hat)
 
-    delta_sigma_guess = resolve_fringe_orders(
-        delta_wrap, theta_est, wavelengths, C_values, nu, L, sigma_max, n_max
-    )
+    delta_sigma_guess = resolve_fringe_orders(delta_wrap, wavelengths, C_values, nu, L, sigma_max, n_max)
 
     # Avoid division by zero
     if delta_sigma == 0:

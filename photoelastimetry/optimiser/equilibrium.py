@@ -126,45 +126,12 @@ def recover_stress_global(
     # S_out = M @ S_in
     # S_in = I0 * [1, S1_hat, S2_hat, S3_hat]
 
+    if len(S_i_hat) == 2:
+        S_i_hat = np.array([S_i_hat[0], S_i_hat[1], 0.0])  # Assume S3=0 if not provided
     S_in = np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
 
     cos_2a = np.cos(2 * analyzer_angles)
     sin_2a = np.sin(2 * analyzer_angles)
-
-    # Helper to calculate predicted intensity for all pixels at once
-    def forward_model(s_xx, s_yy, s_xy):
-        # s_xx shape: (H, W). Returns (H, W, n_wl, n_ang)
-
-        # Calculate derived properties
-        # Orientation is independent of wavelength
-        theta = compute_principal_angle(s_xx, s_yy, s_xy)  # (H, W)
-
-        preds = []
-
-        for i, (wl, C) in enumerate(zip(wavelengths, C_values)):
-            delta = compute_retardance(s_xx, s_yy, s_xy, C, nu, L, wl)  # (H, W)
-
-            # Mueller matrix per pixel: M is (H, W, 4, 4)
-            M = mueller_matrix(theta, delta)
-
-            # Transmitted Stokes vector
-            # S_out = M @ S_in
-            # S_in is (4,). We need broadcast.
-            # M: (H,W,4,4), S_in: (4,) -> sum over axis 3
-            # We want S_out to be (4, H, W)
-            S_out = np.einsum("...ij,j->i...", M, S_in)  # (4, H, W)
-
-            # Calibration / Analyser
-            # I = 0.5 * (S0 + S1 cos + S2 sin)
-
-            I_wl = np.zeros((H, W, n_ang))
-            for a in range(n_ang):
-                I_wl[..., a] = 0.5 * (S_out[0] + S_out[1] * cos_2a[a] + S_out[2] * sin_2a[a])
-
-            preds.append(I_wl)
-
-        # Stack to (H, W, n_wl, n_ang)
-        return np.stack(preds, axis=2)
 
     # Create mask for valid pixels (non-NaN data)
     valid_mask = ~np.isnan(image_stack)

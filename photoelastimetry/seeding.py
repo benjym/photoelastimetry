@@ -1,5 +1,5 @@
 """
-Phase decomposed seeding for stress initialization.
+Phase decomposed seeding for stress initialisation.
 
 This module implements the phase decomposed seeding method described in the paper
 to provide accurate initial estimates for stress optimization algorithms.
@@ -10,7 +10,7 @@ import numpy as np
 from photoelastimetry.image import compute_normalised_stokes, compute_stokes_components
 
 
-def invert_wrapped_retardance(S_m_hat):
+def invert_wrapped_retardance(S_m_hat, S_i_hat=None):
     """
     Invert measured Stokes parameters to get wrapped retardance and orientation.
 
@@ -19,6 +19,9 @@ def invert_wrapped_retardance(S_m_hat):
     S_m_hat : ndarray
         Measured normalised Stokes parameters [S1, S2] for each channel.
         Shape: (..., n_wavelengths, 2)
+    S_i_hat : ndarray, optional
+        Input normalised Stokes parameter [S1, S2] or [S1, S2, S3].
+        If None, assumes linear horizontal polarisation [1, 0].
 
     Returns
     -------
@@ -31,43 +34,48 @@ def invert_wrapped_retardance(S_m_hat):
     s1 = S_m_hat[..., 0]
     s2 = S_m_hat[..., 1]
 
-    # Use vector averaging for angle to handle wrap-around and weight by signal strength
-    # 2*theta = atan2(1-s1, s2)
-    # Vectors are v = [s2, 1-s1] (x, y)
-    # Summing vectors weighs them by their magnitude (approx sin^2(delta/2))
-    # Sum over wavelengths (last axis of s1/s2)
-    x_sum = np.sum(s2, axis=-1)
-    y_sum = np.sum(1 - s1, axis=-1)
+    if S_i_hat is None:
+        # Default: linear horizontal polarization
+        S1_in, S2_in = 1.0, 0.0
+    else:
+        S1_in = S_i_hat[0]
+        S2_in = S_i_hat[1]
 
+    # Calculate alpha (input polarisation angle) from Stokes parameters
+    alpha = 0.5 * np.arctan2(S2_in, S1_in)
+
+    # Calculate difference vector components
+    dx = s2 - S2_in
+    dy = S1_in - s1
+
+    # Sum vectors over wavelengths to handle wrap-around and weight by signal strength
+    x_sum = np.sum(dx, axis=-1)
+    y_sum = np.sum(dy, axis=-1)
+
+    # 2*theta = atan2(Y, X)
     theta_mean = 0.5 * np.arctan2(y_sum, x_sum)
+    sin_weight = np.abs(np.sin(2 * (theta_mean - alpha)))
+    R = np.sqrt(dx**2 + dy**2)
+    raw_magnitude = R / 2.0
 
-    # Wrapped retardance
-    # The magnitude is modulated by sin(2*theta) in a linear polariscope
-    # sin^2(delta/2) * |sin(2*theta)| = sqrt((1-S1)^2 + S2^2) / 2
-    sin_2theta = np.abs(np.sin(2 * theta_mean))
-
-    raw_magnitude = np.sqrt((1 - s1) ** 2 + s2**2) / 2
-
-    # Avoid division by zero at isoclinics
-    # sin_2theta needs to broadcast against raw_magnitude (..., n_wl)
-    # theta_mean is (...,) so sin_2theta is (...,)
-    sin_2theta_expanded = sin_2theta[..., np.newaxis]
+    # Avoid division by zero at isoclinics (where W -> 0)
+    sin_weight_expanded = sin_weight[..., np.newaxis]
 
     # Use where to handle safe division
-    sin_sq_delta_2 = np.divide(raw_magnitude, sin_2theta_expanded, where=(sin_2theta_expanded > 1e-3))
-    # If too close to isoclinic, fallback to raw_magnitude (or just 0 really, but raw is safer)
-    sin_sq_delta_2 = np.where(sin_2theta_expanded <= 1e-3, raw_magnitude, sin_sq_delta_2)
+    sin_sq_delta_2 = np.divide(raw_magnitude, sin_weight_expanded, where=(sin_weight_expanded > 1e-3))
+
+    # If too close to isoclinic, fallback or set to 0
+    sin_sq_delta_2 = np.where(sin_weight_expanded <= 1e-3, 0.0, sin_sq_delta_2)
 
     # Clamp to [0, 1] for numerical stability
     sin_sq_delta_2 = np.clip(sin_sq_delta_2, 0, 1)
 
-    # delta = 2 * asin(sqrt(...))
     delta_wrap = 2 * np.arcsin(np.sqrt(sin_sq_delta_2))
 
     return theta_mean, delta_wrap
 
 
-def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma_max=None, n_max=6):
+def resolve_fringe_orders(delta_wrap, wavelengths, C_values, nu, L, sigma_max=None, n_max=6):
     """
     Resolve fringe orders using multi-wavelength consistency.
 
@@ -75,11 +83,10 @@ def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma
     ----------
     delta_wrap : ndarray
         Wrapped retardance for each wavelength. Shape (..., n_wavelengths)
-    theta : float or ndarray
-        Orientation angle.
     wavelengths : ndarray
         Wavelengths in meters.
     C_values : ndarray
+
         Stress-optic coefficients.
     nu : float
         Solid fraction.
@@ -180,9 +187,15 @@ def resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma
         return best_delta_sigma.item()
 
 
-def initialize_stress_tensor(delta_sigma, theta):
+def initialise_stress_tensor(delta_sigma, theta, K=1):
     """
-    Initialize stress tensor components assuming granular material (sigma_2 approx 0).
+    Initialise stress tensor components assuming a principal stress ratio K. Under these conditions, the stresses are:
+     - sigma_1 = delta_sigma / (1 - K)
+     - sigma_2 = K * sigma_1
+     - p = (sigma_1 + sigma_2) / 2
+     - sigma_xx = p + (delta_sigma / 2) * cos(2*theta)
+     - sigma_yy = p - (delta_sigma / 2) * cos(2*theta)
+     - sigma_xy = (delta_sigma / 2) * sin(2*theta)
 
     Parameters
     ----------
@@ -196,16 +209,15 @@ def initialize_stress_tensor(delta_sigma, theta):
     stress : ndarray
         Stress components [sigma_xx, sigma_yy, sigma_xy].
     """
-    # Eqs. 11-13
-    # sigma_xx = (delta_sigma/2) * (1 + cos(2*theta))
-    # sigma_yy = (delta_sigma/2) * (1 - cos(2*theta))
-    # sigma_xy = (delta_sigma/2) * sin(2*theta)
 
-    s_mean = delta_sigma / 2
-
-    sigma_xx = s_mean * (1 + np.cos(2 * theta))
-    sigma_yy = s_mean * (1 - np.cos(2 * theta))
-    sigma_xy = s_mean * np.sin(2 * theta)
+    sigma_1 = delta_sigma / (1 - K)
+    sigma_2 = K * sigma_1
+    p = (sigma_1 + sigma_2) / 2
+    cos_2theta = np.cos(2 * theta)
+    sin_2theta = np.sin(2 * theta)
+    sigma_xx = p + (delta_sigma / 2) * cos_2theta
+    sigma_yy = p - (delta_sigma / 2) * cos_2theta
+    sigma_xy = (delta_sigma / 2) * sin_2theta
 
     return np.array([sigma_xx, sigma_yy, sigma_xy])
 
@@ -216,7 +228,7 @@ def phase_decomposed_seeding(
     C_values,
     nu,
     L,
-    S_i_hat,
+    S_i_hat=None,
     sigma_max=None,
     n_max=6,
     n_jobs=-1,
@@ -236,7 +248,7 @@ def phase_decomposed_seeding(
         Solid fraction.
     L : float
         Sample thickness in meters.
-    S_i_hat : ndarray
+    S_i_hat : ndarray, optional
         Incoming normalised Stokes vector.
     sigma_max : float, optional
         Maximum allowed stress difference (Pa).
@@ -271,14 +283,14 @@ def phase_decomposed_seeding(
     S_flat = S_m_hat.reshape(-1, S_m_hat.shape[-2], S_m_hat.shape[-1])
 
     # Vectorized inversion
-    theta, delta_wrap = invert_wrapped_retardance(S_flat)
+    theta, delta_wrap = invert_wrapped_retardance(S_flat, S_i_hat)
 
     # Vectorized fringe resolution
-    delta_sigma = resolve_fringe_orders(delta_wrap, theta, wavelengths, C_values, nu, L, sigma_max, n_max)
+    delta_sigma = resolve_fringe_orders(delta_wrap, wavelengths, C_values, nu, L, sigma_max, n_max)
 
     # Vectorized stress tensor construction
-    # initialize_stress_tensor returns (3, N)
-    stress_components = initialize_stress_tensor(delta_sigma, theta)
+    # initialise_stress_tensor returns (3, N)
+    stress_components = initialise_stress_tensor(delta_sigma, theta, 0.6)
 
     # Reshape to (H, W, 3)
     stress_map = np.moveaxis(stress_components, 0, -1).reshape(H, W, 3)

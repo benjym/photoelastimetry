@@ -112,7 +112,7 @@ def image_to_stress(params, output_filename=None):
             C_VALUES,
             NU,
             L,
-            S_I_HAT,
+            S_i_hat=S_I_HAT,
             sigma_max=sigma_max,
             n_max=n_max,
             n_jobs=n_jobs,
