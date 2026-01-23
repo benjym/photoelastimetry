@@ -128,9 +128,12 @@ class BSplineAiry:
         # sigma_yy = d^2(phi)/dx^2 = By * C * Bx''.T
         sigma_yy = self.By @ C @ self.ddBx.T
 
-        # sigma_xy = -d^2(phi)/dxdy = -(By' * C * Bx'.T)
-        # Note: In image coordinates (y positive down), the coordinate transform yields:
-        # sigma_xy = d^2(phi)/dx_img dy_img (positive sign due to y-axis flip)
+        # sigma_xy = -d^2(phi)/dxdy in standard physics convention
+        # However, in image coordinates where y increases downward (y_img),
+        # and physical coordinates have y increasing upward (y_phy):
+        # dy_phy = -dy_img, so d/dy_phy = -d/dy_img
+        # Thus: sigma_xy = -d²φ/dx_phy dy_phy = -d²φ/dx_img (-dy_img) = +d²φ/dx_img dy_img
+        # Result: sigma_xy = dBy @ C @ dBx.T (positive sign in image coordinates)
         sigma_xy = self.dBy @ C @ self.dBx.T
 
         return sigma_xx, sigma_yy, sigma_xy
@@ -160,7 +163,8 @@ class BSplineAiry:
         grad_C += self.By.T @ grad_s_yy @ self.ddBx
 
         # Contributions from sigma_xy = dBy @ C @ dBx.T
-        # Note: positive sign (no negative) due to coordinate transform
+        # Positive sign maintains consistency with forward pass in get_stress_fields()
+        # (no negative sign due to image coordinate system transformation)
         grad_C += self.dBy.T @ grad_s_xy @ self.dBx
 
         return grad_C.flatten()
