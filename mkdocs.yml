@@ -81,6 +81,7 @@ nav:
           - disk: reference/generate/disk.md
           - point_load: reference/generate/point_load.md
           - lithostatic: reference/generate/lithostatic.md
+          - inclined_plane: reference/generate/inclined_plane.md
           - image: reference/image.md
           - io: reference/io.md
           - main: reference/main.md
