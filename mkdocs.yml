@@ -49,7 +49,6 @@ plugins:
             inherited_members: false
             filters:
               - "!^_"
-  - include-markdown
 
 markdown_extensions:
   - pymdownx.highlight:
@@ -67,27 +66,45 @@ markdown_extensions:
   - md_in_html
   - toc:
       permalink: true
-  - markdown_include.include:
-        base_path: json
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
-  - User Guide: user-guide.md
-  - Examples: examples.md
-  - API Reference:
+  - User:
+      - Overview: user/index.md
+      - Installation: user/installation.md
+      - Quickstart: user/quickstart.md
+      - Workflows:
+          - image-to-stress: user/workflows/image-to-stress.md
+          - stress-to-image: user/workflows/stress-to-image.md
+          - demosaic-raw: user/workflows/demosaic-raw.md
+          - calibrate-photoelastimetry: user/workflows/calibration.md
+      - Configuration Reference: user/configuration.md
+      - Python API Workflow: user/python-api.md
+      - Troubleshooting: user/troubleshooting.md
+  - Developer:
+      - Overview: developer/index.md
+      - Setup: developer/setup.md
+      - Testing: developer/testing.md
+      - Architecture: developer/architecture.md
+      - Module Map: developer/module-map.md
+      - Contributing: developer/contributing.md
+      - Release and Docs: developer/release-and-docs.md
+  - Reference:
       - Overview: reference/index.md
+      - Core Modules:
+          - main: reference/main.md
+          - io: reference/io.md
+          - image: reference/image.md
+          - calibrate: reference/calibrate.md
+          - optimise: reference/optimise.md
+          - seeding: reference/seeding.md
+          - bspline: reference/bspline.md
+          - unwrapping: reference/unwrapping.md
+          - visualisation: reference/visualisation.md
+          - plotting: reference/plotting.md
       - Generator Modules:
           - disk: reference/generate/disk.md
           - point_load: reference/generate/point_load.md
+          - strip_load: reference/generate/strip_load.md
           - lithostatic: reference/generate/lithostatic.md
           - inclined_plane: reference/generate/inclined_plane.md
-          - calibrate: reference/calibrate.md
-          - image: reference/image.md
-          - io: reference/io.md
-          - main: reference/main.md
-          - plotting: reference/plotting.md
-      - Solver Module:
-          - optimise: reference/optimise.md
-  - Testing: testing.md
-  - Contributing: contributing.md

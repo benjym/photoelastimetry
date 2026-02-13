@@ -6,246 +6,45 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Package for processing polarised images to measure stress in granular media
+Package for processing polarised images to measure stress in granular media.
 
-## Installation
-
-To install the package, run the following command in the terminal:
+## Install
 
 ```bash
 pip install photoelastimetry
 ```
 
+## CLI Tools
+
+- `image-to-stress`
+- `stress-to-image`
+- `demosaic-raw`
+- `calibrate-photoelastimetry`
+
+Run `--help` on each command for usage.
+
 ## Documentation
 
-Full documentation is available [here](https://benjym.github.io/photoelastimetry/).
+- Full docs: <https://benjym.github.io/photoelastimetry/>
+- User docs (workflows/config): `docs/user/`
+- Developer docs (setup/tests/architecture): `docs/developer/`
+- API reference: `docs/reference/`
 
-## Usage
-
-After installation, command line scripts are available:
-
-### image-to-stress
-
-Converts photoelastic images to stress maps using the stress-optic law and polarisation analysis.
+## Fastest Local Example
 
 ```bash
-image-to-stress <json_filename> [--output OUTPUT]
+stress-to-image forward.json5
+image-to-stress inverse.json5
 ```
 
-**Arguments:**
-
-- `json_filename`: Path to the JSON5 parameter file containing configuration (required)
-- `--output`: Path to save the output stress map image (optional)
-
-**Example:**
-
-```bash
-image-to-stress params.json5 --output stress_map.png
-```
-
-The JSON5 parameter file should contain:
-
-- `folderName`: Path to folder containing raw photoelastic images
-- `C`: Stress-optic coefficient in 1/Pa
-- `thickness`: Sample thickness in meters
-- `wavelengths`: List of wavelengths in nanometers
-- `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
-- `calibration_file` (optional): Path to calibration profile JSON5. If provided, missing `C`, `S_i_hat`, and `wavelengths` are filled from the profile, and blank correction is applied to input stacks.
-- `crop` (optional): Crop region as [y1, y2, x1, x2]
-- `debug` (optional): If true, display all channels for debugging
-- `seeding` (optional): Controls phase-decomposed seeding (`enabled`, `n_max`, `sigma_max`)
-- `knot_spacing`, `spline_degree`, `boundary_mask_file`, `boundary_values_files`,
-  `boundary_weight`, `regularisation_weight` (`regularization_weight` alias),
-  `regularisation_order`, `external_potential_file`, `external_potential_gradient`,
-  `max_iterations`, `tolerance`, `verbose`, `debug` (optional): Optimise solver settings
-
-### stress-to-image
-
-Converts stress field data to photoelastic fringe pattern images.
-
-```bash
-stress-to-image <json_filename>
-```
-
-**Arguments:**
-
-- `json_filename`: Path to the JSON5 parameter file containing configuration (required)
-
-**Example:**
-
-```bash
-stress-to-image params.json5
-```
-
-The JSON5 parameter file should contain:
-
-- `stress_filename`: Path to the stress field data file (or legacy `s_filename`)
-- `thickness` (or legacy `t`): Thickness of the photoelastic material
-- `wavelengths` (nm or m) or legacy `lambda_light`: Illumination wavelengths
-- `C`: Stress-optic coefficient(s), scalar or one per wavelength
-- `S_i_hat` (optional): Incoming normalised Stokes vector `[S1_hat, S2_hat, S3_hat]`
-- `calibration_file` (optional): Path to calibration profile JSON5. If provided, missing `C`, `S_i_hat`, and `wavelengths` are filled from the profile.
-- `stress_order` (optional): `xx_yy_xy` (default) or legacy `xy_yy_xx`
-- `scattering` (optional): Gaussian filter sigma for scattering simulation
-- `output_filename` (optional):
-  - `.tiff/.tif/.npy/.raw`: saves full synthetic stack `[H, W, n_wavelengths, 4]`
-  - `.png/.jpg/.jpeg`: saves a 2-panel fringe/isoclinic plot (default: `output.png`)
-
-### demosaic-raw
-
-De-mosaics a raw polarimetric image from a camera with a 4x4 superpixel pattern into separate colour and polarisation channels.
-
-```bash
-demosaic-raw <input_file> [--width WIDTH] [--height HEIGHT] [--dtype DTYPE] [--output-prefix PREFIX] [--format FORMAT] [--all]
-```
-
-**Arguments:**
-
-- `input_file`: Path to the raw image file, or directory when using `--all` (required)
-- `--width`: Image width in pixels (default: 4096)
-- `--height`: Image height in pixels (default: 3000)
-- `--dtype`: Data type, either 'uint8' or 'uint16' (auto-detected if not specified)
-- `--output-prefix`: Prefix for output files (default: input filename without extension)
-- `--format`: Output format, either 'tiff' or 'png' (default: 'tiff')
-- `--all`: Recursively process all .raw files in the input directory and subdirectories
-
-**Examples:**
-
-```bash
-# Save as a single TIFF stack
-demosaic-raw image.raw --width 2448 --height 2048 --dtype uint16 --format tiff
-
-# Save as four separate PNG files (one per polarisation angle)
-demosaic-raw image.raw --width 2448 --height 2048 --format png --output-prefix output
-
-# Process all raw files in a directory recursively
-demosaic-raw images/ --format png --all
-```
-
-**Output formats:**
-
-- `tiff`: Creates a single TIFF file with shape [H/4, W/4, 4, 4] containing all colour channels (R, G1, G2, B) and polarisation angles (0°, 45°, 90°, 135°)
-- `png`: Creates 4 PNG files (one per polarisation angle), each containing all colour channels as a composite image
-
-**Supported `recordingMetadata.json` `pixelFormat` values (Bayer 8/10/12):**
-
-- `BayerGR8`: `17301512` (`0x01080008`) -> `uint8`
-- `BayerRG8`: `17301513` (`0x01080009`) -> `uint8`
-- `BayerGB8`: `17301514` (`0x0108000A`) -> `uint8`
-- `BayerBG8`: `17301515` (`0x0108000B`) -> `uint8`
-- `BayerGR10`: `17825804` (`0x0110000C`) -> `uint16` container (10-bit data)
-- `BayerRG10`: `17825805` (`0x0110000D`) -> `uint16` container (10-bit data)
-- `BayerGB10`: `17825806` (`0x0110000E`) -> `uint16` container (10-bit data)
-- `BayerBG10`: `17825807` (`0x0110000F`) -> `uint16` container (10-bit data)
-- `BayerGR12`: `17825808` (`0x01100010`) -> `uint16` container (12-bit data)
-- `BayerRG12`: `17825809` (`0x01100011`) -> `uint16` container (12-bit data)
-- `BayerGB12`: `17825810` (`0x01100012`) -> `uint16` container (12-bit data)
-- `BayerBG12`: `17825811` (`0x01100013`) -> `uint16` container (12-bit data)
-
-When `pixelFormat` is present, raw file size is checked against `width * height * bytes_per_pixel` for that format.
-
-### calibrate-photoelastimetry
-
-Calibrates stress-optic coefficients (`C`), incoming polarisation (`S_i_hat`), and blank correction from known-load multi-step data.
-
-```bash
-calibrate-photoelastimetry <json_filename>
-```
-
-**Arguments:**
-
-- `json_filename`: Path to a calibration JSON5 file (required)
-
-**Calibration JSON5 parameters:**
-
-- `method`: `brazilian_disk` (default) or `coupon_test`
-- `wavelengths`: Illumination wavelengths (nm or m)
-- `thickness`: Sample thickness (m)
-- `geometry`:
-  - for `brazilian_disk`:
-    - `radius_m`: Disk radius in meters
-    - `center_px`: Disk center `[cx, cy]` in image pixels
-    - `pixels_per_meter`: Pixel scale
-    - `edge_margin_fraction` (optional, default `0.9`)
-    - `contact_exclusion_fraction` (optional, default `0.12`)
-  - for `coupon_test`:
-    - `gauge_roi_px`: Gauge ROI `[x0, x1, y0, y1]`
-    - `coupon_width_m`: Coupon gauge width in meters
-    - `load_axis` (optional): `'x'` (default) or `'y'`
-    - `transverse_stress_ratio` (optional, default `0.0`)
-    - `roi_margin_px` (optional, default `0`)
-- `load_steps`: List of calibration images with known loads
-  - Each step requires `image_file` and `load`
-  - Include at least one no-load step (`load` ≈ `0`) and at least three non-zero loads
-- `dark_frame_file` and `blank_frame_file` (optional, but provide both or neither)
-- `fit` (optional): `max_points`, `seed`, `loss`, `f_scale`, `max_nfev`, `initial_C`, `initial_S_i_hat`
-- `output_profile`, `output_report`, `output_diagnostics` (optional output paths)
-
-The generated calibration profile contains required fields:
-`version`, `method`, `wavelengths`, `C`, `S_i_hat`, `blank_correction`, `fit_metrics`, `provenance`.
+For complete runnable examples, use `docs/user/quickstart.md` and workflow pages under `docs/user/workflows/`.
 
 ## Development
 
-To set up the development environment, clone the repository and install the package in editable mode with development dependencies:
-
 ```bash
-git clone https://github.com/benjym/photoelastimetry.git
-cd photoelastimetry
-pip install -e ".[dev]"
-# Set up pre-commit hooks
-pre-commit install
-```
-
-### Running Tests
-
-The project uses `pytest` for testing with comprehensive coverage analysis:
-
-```bash
-# Run all tests
+pip install -e ".[dev,docs]"
 pytest
-
-# Run tests with coverage report
-pytest --cov=photoelastimetry --cov-report=html
-
-# Run specific test file
-pytest tests/test_optimise.py -v
-
-# Run tests in parallel (faster)
-pytest -n auto
+mkdocs build --strict
 ```
 
-### Code Coverage
-
-View the coverage report by opening `htmlcov/index.html` in your browser after running tests with coverage enabled.
-
-Current test coverage includes:
-
-- Optimise solver: mean-stress recovery with equilibrium constraints
-- Disk simulations: synthetic photoelastic data generation
-- Image processing: retardance, principal angle, and Mueller matrix calculations
-
-### Code Quality
-
-The project uses `black` for code formatting and `flake8` for linting:
-
-```bash
-# Format code
-black photoelastimetry tests
-
-# Check code style
-flake8 photoelastimetry
-```
-
-### Continuous Integration
-
-GitHub Actions automatically runs tests on:
-
-- Python 3.9, 3.10, 3.11, and 3.12
-- Multiple operating systems (Ubuntu)
-- Every push and pull request
-
-Test coverage is automatically uploaded to Codecov for tracking.
-
-## Authors
-
-- [Benjy Marks](mailto:benjy.marks@sydney.edu.au)
+Contributor guidance is maintained in `docs/developer/`.
