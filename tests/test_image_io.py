@@ -8,10 +8,11 @@ used in photoelastic stress analysis.
 
 import os
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import pytest
+
+from photoelastimetry.io import load_image
 
 # Test imports - some may not be available depending on implementation
 try:
@@ -20,13 +21,6 @@ try:
     IMAGE_MODULE_AVAILABLE = True
 except ImportError:
     IMAGE_MODULE_AVAILABLE = False
-
-try:
-    from photoelastimetry.io import load_images, read_config, save_results
-
-    IO_MODULE_AVAILABLE = True
-except (ImportError, AttributeError):
-    IO_MODULE_AVAILABLE = False
 
 
 @pytest.fixture
@@ -188,115 +182,6 @@ class TestImageProcessing:
                 assert np.isclose(M[0, 0], 1.0), "M[0,0] should be 1.0"
 
 
-@pytest.mark.skipif(not IO_MODULE_AVAILABLE, reason="I/O module not available")
-class TestIOFunctions:
-    """Test class for input/output functions."""
-
-    def test_load_images_basic(self, temp_directory):
-        """Test basic image loading functionality."""
-        # Create some dummy image files for testing
-        temp_dir = Path(temp_directory)
-
-        # Create dummy images (as numpy arrays saved to files)
-        dummy_images = []
-        image_files = []
-
-        for i in range(3):
-            # Create a small dummy image
-            dummy_img = np.random.randint(0, 256, (50, 50, 3), dtype=np.uint8)
-            dummy_images.append(dummy_img)
-
-            # Save as .npy file (assuming this format is supported)
-            img_path = temp_dir / f"test_image_{i}.npy"
-            np.save(img_path, dummy_img)
-            image_files.append(str(img_path))
-
-        try:
-            # Try to load images
-            loaded_images = load_images(image_files)
-
-            # Check that something was loaded
-            assert loaded_images is not None, "Should load some images"
-
-            # If loaded_images is a list, check length
-            if isinstance(loaded_images, list):
-                assert len(loaded_images) > 0, "Should load at least one image"
-
-            # If it's an array, check shape
-            elif hasattr(loaded_images, "shape"):
-                assert loaded_images.size > 0, "Loaded array should not be empty"
-
-        except Exception as e:
-            pytest.skip(f"Image loading test skipped: {e}")
-
-    def test_save_results_basic(self, temp_directory):
-        """Test basic results saving functionality."""
-        # Create some dummy results to save
-        results = {
-            "stress_field": np.random.rand(10, 10, 3),
-            "parameters": {
-                "wavelengths": [650e-9, 550e-9, 450e-9],
-                "C_values": [2e-12, 2.2e-12, 2.5e-12],
-            },
-            "metadata": {
-                "date": "2023-01-01",
-                "method": "test",
-            },
-        }
-
-        output_path = os.path.join(temp_directory, "test_results.pkl")
-
-        try:
-            # Try to save results
-            save_results(results, output_path)
-
-            # Check that file was created
-            assert os.path.exists(output_path), "Results file should be created"
-            assert os.path.getsize(output_path) > 0, "Results file should not be empty"
-
-        except Exception as e:
-            pytest.skip(f"Results saving test skipped: {e}")
-
-    def test_read_config_basic(self, temp_directory):
-        """Test basic configuration reading functionality."""
-        # Create a dummy config file
-        config_data = {
-            "wavelengths": [650e-9, 550e-9, 450e-9],
-            "C_values": [2e-12, 2.2e-12, 2.5e-12],
-            "nu": 1.0,
-            "L": 0.01,
-            "S_i_hat": [0.1, 0.2, 0.0],
-        }
-
-        config_path = os.path.join(temp_directory, "test_config.json")
-
-        # Write config file (try JSON format)
-        try:
-            import json
-
-            with open(config_path, "w") as f:
-                json.dump(config_data, f)
-        except ImportError:
-            pytest.skip("JSON module not available for config test")
-
-        try:
-            # Try to read configuration
-            loaded_config = read_config(config_path)
-
-            # Check that config was loaded
-            assert loaded_config is not None, "Should load configuration"
-            assert isinstance(loaded_config, dict), "Configuration should be a dictionary"
-
-            # Check for expected keys
-            expected_keys = ["wavelengths", "C_values", "nu", "L", "S_i_hat"]
-            for key in expected_keys:
-                if key in loaded_config:
-                    assert loaded_config[key] == config_data[key], f"Config key {key} should match"
-
-        except Exception as e:
-            pytest.skip(f"Config reading test skipped: {e}")
-
-
 class TestImageProcessingEdgeCases:
     """Test class for edge cases and error handling."""
 
@@ -346,35 +231,16 @@ class TestImageProcessingEdgeCases:
     def test_file_handling_errors(self, temp_directory):
         """Test I/O error handling."""
         # Test loading non-existent file
-        non_existent_path = os.path.join(temp_directory, "does_not_exist.txt")
+        non_existent_path = os.path.join(temp_directory, "does_not_exist.npy")
+        with pytest.raises(FileNotFoundError):
+            load_image(non_existent_path)
 
-        if IO_MODULE_AVAILABLE:
-            try:
-                result = load_images([non_existent_path])
-                # If no exception is raised, result should indicate failure appropriately
-                if result is not None:
-                    # Function handled the error gracefully
-                    pass
-            except (FileNotFoundError, IOError, ValueError):
-                # Expected behavior for non-existent files
-                pass
-
-        # Test saving to read-only location (if we can create one)
-        try:
-            readonly_path = os.path.join(temp_directory, "readonly_test.txt")
-            with open(readonly_path, "w") as f:
-                f.write("test")
-            os.chmod(readonly_path, 0o444)  # Make read-only
-
-            if IO_MODULE_AVAILABLE:
-                try:
-                    save_results({"test": "data"}, readonly_path)
-                except (PermissionError, IOError):
-                    # Expected behavior for read-only files
-                    pass
-        except (OSError, AttributeError):
-            # chmod might not work on all systems
-            pass
+        # Test unsupported extension handling
+        unsupported_path = os.path.join(temp_directory, "unsupported.xyz")
+        with open(unsupported_path, "w") as f:
+            f.write("dummy")
+        with pytest.raises(ValueError, match="Unsupported file format"):
+            load_image(unsupported_path)
 
 
 if __name__ == "__main__":

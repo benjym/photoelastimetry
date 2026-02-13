@@ -349,38 +349,26 @@ class TestStokesVsIntensityComparison:
 
     def test_compare_stokes_vs_intensity_basic(self, test_parameters):
         """Test basic comparison between Stokes and intensity methods."""
-        # This is a complex function that would need synthetic data
-        # For now, test that it can be imported and called without error
-
-        # Create minimal synthetic data
+        # Create minimal synthetic 4-angle image stack
         height, width = 2, 2
         n_wavelengths = len(test_parameters["wavelengths"])
+        image_stack = np.random.rand(height, width, n_wavelengths, 4) * 0.5 + 0.5
 
-        # Synthetic Stokes images
-        stokes_images = np.random.rand(height, width, n_wavelengths, 2) * 0.1
+        comparison_results = compare_stokes_vs_intensity(
+            image_stack,
+            test_parameters["wavelengths"],
+            test_parameters["C_values"],
+            test_parameters["nu"],
+            test_parameters["L"],
+            test_parameters["S_i_hat"],
+            test_parameters["analyzer_angles"],
+        )
 
-        # Synthetic intensity images
-        intensity_images = np.random.rand(height, width, n_wavelengths, 4) * 0.5 + 0.5
-
-        try:
-            comparison_results = compare_stokes_vs_intensity(
-                stokes_images,
-                intensity_images,
-                test_parameters["wavelengths"],
-                test_parameters["C_values"],
-                test_parameters["nu"],
-                test_parameters["L"],
-                test_parameters["S_i_hat"][:2],  # Stokes only uses first 2 components
-                test_parameters["S_i_hat"],  # Intensity uses full 3-component
-                test_parameters["analyzer_angles"],
-            )
-
-            # If it runs without error, that's a good start
-            assert comparison_results is not None, "Comparison should return results"
-
-        except Exception as e:
-            # If there are issues with the synthetic data format, that's okay for this basic test
-            pytest.skip(f"Comparison test skipped due to data format: {e}")
+        assert comparison_results is not None, "Comparison should return results"
+        assert "stokes_stress" in comparison_results
+        assert "intensity_stress" in comparison_results
+        assert comparison_results["stokes_stress"].shape == (height, width, 3)
+        assert comparison_results["intensity_stress"].shape == (height, width, 3)
 
 
 if __name__ == "__main__":

@@ -191,7 +191,7 @@ class TestForwardModel:
         nu = test_parameters["nu"]
         L = test_parameters["L"]
         wavelength = test_parameters["wavelengths"][0]
-        S_i_hat = test_parameters["S_i_hat"][:2]  # Only S1_hat, S2_hat for this function
+        S_i_hat = test_parameters["S_i_hat"]  # [S1_hat, S2_hat, S3_hat]
 
         S1_pred, S2_pred = predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat)
 
@@ -205,7 +205,7 @@ class TestForwardModel:
 
     def test_predict_stokes_no_stress(self, test_parameters):
         """Test Stokes prediction with zero stress."""
-        S_i_hat = test_parameters["S_i_hat"][:2]
+        S_i_hat = test_parameters["S_i_hat"]
 
         S1_pred, S2_pred = predict_stokes(
             0.0,
@@ -238,7 +238,7 @@ class TestStressRecovery:
         C_values = test_parameters["C_values"]
         nu = test_parameters["nu"]
         L = test_parameters["L"]
-        S_i_hat = test_parameters["S_i_hat"][:2]
+        S_i_hat = test_parameters["S_i_hat"]
 
         # Create synthetic Stokes measurements
         S_measured = np.zeros((len(wavelengths), 2))
@@ -278,7 +278,7 @@ class TestStressRecovery:
     #     C_values = test_parameters["C_values"]
     #     nu = test_parameters["nu"]
     #     L = test_parameters["L"]
-    #     S_i_hat = test_parameters["S_i_hat"][:2]
+    #     S_i_hat = test_parameters["S_i_hat"]
 
     #     # Generate synthetic measurements
     #     S_measured = np.zeros((len(wavelengths), 2))
@@ -346,7 +346,7 @@ class TestStressMap:
         C_values = test_parameters["C_values"]
         nu = test_parameters["nu"]
         L = test_parameters["L"]
-        S_i_hat = test_parameters["S_i_hat"][:2]
+        S_i_hat = test_parameters["S_i_hat"]
 
         # This should run without error
         stress_map = recover_stress_map_stokes(image_stack, wavelengths, C_values, nu, L, S_i_hat)
