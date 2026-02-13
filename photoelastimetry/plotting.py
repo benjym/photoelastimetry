@@ -284,7 +284,7 @@ def plot_DoLP_AoLP(DoLP, AoLP, filename=None):
         plt.colorbar()
         plt.title(colour + " DoLP")
         plt.subplot(2, 4, i + 5)
-        plt.imshow(AoLP[:, :, i], cmap=virino)
+        plt.imshow(AoLP[:, :, i], cmap=virino())
         plt.colorbar()
         plt.title(colour + " AoLP")
 
@@ -302,7 +302,7 @@ def plot_fringe_pattern(intensity, isoclinic, filename="output.png"):
     plt.title("Fringe Pattern")
 
     plt.subplot(1, 2, 2)
-    plt.imshow(isoclinic, cmap=virino)
+    plt.imshow(isoclinic, cmap=virino())
     plt.colorbar()
     plt.title("Isoclinic Angle")
 

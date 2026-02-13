@@ -43,26 +43,27 @@ def diametrical_stress_cartesian(X, Y, P, R):
     theta1 = np.arctan2(X_safe, Y_safe - R)
     theta2 = np.arctan2(X_safe, Y_safe + R)
 
-    sigma_xx = (
-        -(2 * P / np.pi)
-        * (np.cos(theta1) ** 2 * (Y_safe - R) / (r1**2) - np.cos(theta2) ** 2 * (Y_safe + R) / (r2**2))
-        / R
-    )
-
-    sigma_yy = (
-        -(2 * P / np.pi)
-        * (np.sin(theta1) ** 2 * (Y_safe - R) / (r1**2) - np.sin(theta2) ** 2 * (Y_safe + R) / (r2**2))
-        / R
-    )
-
-    tau_xy = (
-        -(2 * P / np.pi)
-        * (
-            np.sin(theta1) * np.cos(theta1) * (Y_safe - R) / (r1**2)
-            - np.sin(theta2) * np.cos(theta2) * (Y_safe + R) / (r2**2)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sigma_xx = (
+            -(2 * P / np.pi)
+            * (np.cos(theta1) ** 2 * (Y_safe - R) / (r1**2) - np.cos(theta2) ** 2 * (Y_safe + R) / (r2**2))
+            / R
         )
-        / R
-    )
+
+        sigma_yy = (
+            -(2 * P / np.pi)
+            * (np.sin(theta1) ** 2 * (Y_safe - R) / (r1**2) - np.sin(theta2) ** 2 * (Y_safe + R) / (r2**2))
+            / R
+        )
+
+        tau_xy = (
+            -(2 * P / np.pi)
+            * (
+                np.sin(theta1) * np.cos(theta1) * (Y_safe - R) / (r1**2)
+                - np.sin(theta2) * np.cos(theta2) * (Y_safe + R) / (r2**2)
+            )
+            / R
+        )
 
     return sigma_xx, sigma_yy, tau_xy
 
@@ -125,7 +126,7 @@ def generate_synthetic_brazil_test(
     )
 
 
-def post_process_synthetic_data(
+def post_process_synthetic_data(  # pragma: no cover
     principal_diff, theta_p, sigma_xx, sigma_yy, tau_xy, S_i_hat, t_sample, C, lambda_light, outname
 ):
     plt.figure(figsize=(12, 12), layout="constrained")

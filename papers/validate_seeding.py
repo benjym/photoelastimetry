@@ -25,8 +25,8 @@ theta_test = 1  # Test angle (radians)
 n_max = 6  # max fringe order to search
 sigma_max = n_max * wavelengths.min() / (C_values.max() * nu * L)
 print(f"Max stress for n_max={n_max} is {sigma_max:.2e} Pa")
-n_tests = 50
-resolution = 50
+n_tests = 200
+resolution = 200
 
 plt.figure()
 

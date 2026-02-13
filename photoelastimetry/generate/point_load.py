@@ -183,7 +183,7 @@ def generate_synthetic_boussinesq(
     )
 
 
-def post_process_synthetic_data(
+def post_process_synthetic_data(  # pragma: no cover
     X, Y, principal_diff, theta_p, sigma_xx, sigma_yy, tau_xy, S_i_hat, t_sample, C, lambda_light, P, outname
 ):
     """

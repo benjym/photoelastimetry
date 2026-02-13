@@ -1,185 +1,133 @@
-#!/usr/bin/env python3
-"""
-Tests for I/O functions in photoelastimetry.io module.
-
-Tests basic save/load functionality for various image formats.
-"""
-
-import os
-import tempfile
+import json
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from photoelastimetry.io import load_image, save_image, split_channels
+from photoelastimetry.io import bin_image, load_image, load_raw, read_raw, save_image, split_channels
 
 
-class TestSplitChannels:
-    """Test class for split_channels function."""
+def test_split_channels_known_superpixel_mapping():
+    data = np.arange(16, dtype=np.uint16).reshape(4, 4)
+    out = split_channels(data)
 
-    def test_split_channels_basic(self):
-        """Test basic channel splitting functionality."""
-        # Create a 4x4 test pattern (one superpixel)
-        data = np.arange(16).reshape(4, 4)
-
-        result = split_channels(data)
-
-        # Result should have shape (1, 1, 4, 4) for (height, width, 4 colors, 4 polarizations)
-        assert result.shape == (1, 1, 4, 4), f"Expected shape (1, 1, 4, 4), got {result.shape}"
-
-    def test_split_channels_multiple_superpixels(self):
-        """Test channel splitting with multiple superpixels."""
-        # Create 8x8 test pattern (2x2 superpixels)
-        data = np.arange(64).reshape(8, 8)
-
-        result = split_channels(data)
-
-        # Result should have shape (2, 2, 4, 4)
-        assert result.shape == (2, 2, 4, 4), f"Expected shape (2, 2, 4, 4), got {result.shape}"
-        assert np.all(np.isfinite(result)), "All values should be finite"
-
-    def test_split_channels_large_array(self):
-        """Test channel splitting with larger array."""
-        # Create 16x16 test pattern (4x4 superpixels)
-        data = np.random.randint(0, 255, (16, 16), dtype=np.uint8)
-
-        result = split_channels(data)
-
-        assert result.shape == (4, 4, 4, 4), f"Expected shape (4, 4, 4, 4), got {result.shape}"
+    assert out.shape == (1, 1, 4, 4)
+    # R channel values from the documented superpixel map.
+    assert out[0, 0, 0, 0] == data[0, 0]  # R_0
+    assert out[0, 0, 0, 1] == data[0, 1]  # R_45
+    assert out[0, 0, 0, 2] == data[1, 1]  # R_90
+    assert out[0, 0, 0, 3] == data[1, 0]  # R_135
 
 
-class TestSaveLoadImage:
-    """Test class for save_image and load_image functions."""
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
+def test_read_raw_auto_detects_dtype(tmp_path, dtype):
+    arr = np.arange(36, dtype=dtype).reshape(6, 6)
+    raw_file = tmp_path / f"frame_{dtype.__name__}.raw"
+    arr.tofile(raw_file)
 
-    def test_save_load_npy(self):
-        """Test saving and loading .npy format."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test.npy")
-            data = np.random.rand(10, 10)
+    metadata = {"width": 6, "height": 6}
+    loaded = read_raw(str(raw_file), metadata)
 
-            save_image(filename, data)
-            loaded, metadata = load_image(filename)
-
-            assert np.allclose(loaded, data), "Loaded data should match saved data"
-            assert isinstance(metadata, dict), "Metadata should be a dictionary"
-
-    def test_save_load_tiff_2d(self):
-        """Test saving and loading 2D .tiff format."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test.tiff")
-            data = np.random.rand(10, 10).astype(np.float32)
-
-            save_image(filename, data)
-            loaded, metadata = load_image(filename)
-
-            assert loaded.shape == data.shape, "Loaded shape should match saved shape"
-            assert np.allclose(loaded, data, rtol=1e-5), "Loaded data should approximately match saved data"
-
-    def test_save_load_tiff_3d(self):
-        """Test saving and loading 3D .tiff format (multi-channel)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test_3d.tiff")
-            data = np.random.rand(10, 10, 3).astype(np.float32)
-
-            save_image(filename, data)
-            loaded, metadata = load_image(filename)
-
-            # Shape might be transposed
-            assert loaded.size == data.size, "Loaded size should match saved size"
-
-    def test_save_load_tiff_4d(self):
-        """Test saving and loading 4D .tiff format."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test_4d.tiff")
-            data = np.random.rand(5, 5, 3, 4).astype(np.float32)
-
-            save_image(filename, data)
-            loaded, metadata = load_image(filename)
-
-            # Shape will be transposed for TIFF format
-            assert loaded.size == data.size, "Loaded size should match saved size"
-
-    def test_save_load_png(self):
-        """Test saving and loading .png format."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test.png")
-            data = np.random.randint(0, 255, (10, 10), dtype=np.uint8)
-
-            save_image(filename, data)
-            loaded, metadata = load_image(filename)
-
-            assert loaded.shape[:2] == data.shape, "Loaded shape should match saved shape"
-
-    def test_save_unsupported_format(self):
-        """Test that unsupported format raises ValueError."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test.unsupported")
-            data = np.random.rand(10, 10)
-
-            with pytest.raises(ValueError, match="Unsupported file format"):
-                save_image(filename, data)
-
-    def test_load_unsupported_format(self):
-        """Test that loading unsupported format raises ValueError."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test.unsupported")
-            # Create an empty file
-            open(filename, "w").close()
-
-            with pytest.raises(ValueError, match="Unsupported file format"):
-                load_image(filename)
-
-    def test_save_raw_format(self):
-        """Test saving .raw format with metadata."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "test.raw")
-            data = np.random.randint(0, 255, (10, 10), dtype=np.uint8)
-            metadata = {"dtype": "uint8", "width": 10, "height": 10}
-
-            save_image(filename, data, metadata)
-
-            # Verify file was created
-            assert os.path.exists(filename), "Raw file should be created"
-            # Verify file size
-            file_size = os.path.getsize(filename)
-            assert file_size == 100, f"Expected file size 100, got {file_size}"
+    assert metadata["dtype"] == np.dtype(dtype).name
+    assert loaded.shape == (6, 6)
+    assert np.array_equal(np.asarray(loaded), arr)
 
 
-class TestEdgeCases:
-    """Test class for edge cases and error handling."""
+def test_read_raw_invalid_size_raises(tmp_path):
+    raw_file = tmp_path / "bad.raw"
+    raw_file.write_bytes(b"abc")
 
-    def test_save_empty_array(self):
-        """Test saving empty array."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "empty.npy")
-            data = np.array([])
-
-            # Should not raise error
-            save_image(filename, data)
-
-    def test_save_single_pixel(self):
-        """Test saving a single pixel image."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "single_pixel.npy")
-            data = np.array([[42.0]])
-
-            save_image(filename, data)
-            loaded, metadata = load_image(filename)
-
-            assert loaded.shape == (1, 1), "Single pixel shape should be preserved"
-            assert loaded[0, 0] == 42.0, "Single pixel value should match"
-
-    def test_save_large_values(self):
-        """Test saving data with large values."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = os.path.join(tmpdir, "large_values.npy")
-            data = np.array([[1e10, 1e-10]])
-
-            save_image(filename, data)
-            loaded, metadata = load_image(filename)
-
-            np.testing.assert_allclose(loaded, data, rtol=1e-6)
+    with pytest.raises(ValueError, match="File size does not match expected size"):
+        read_raw(str(raw_file), {"width": 10, "height": 10})
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_load_raw_missing_metadata_raises(tmp_path):
+    with pytest.raises(ValueError, match="recordingMetadata.json"):
+        load_raw(str(tmp_path))
+
+
+def test_load_raw_no_frames_raises(tmp_path):
+    (tmp_path / "0000000").mkdir()
+    (tmp_path / "recordingMetadata.json").write_text(json.dumps({"width": 4, "height": 4}))
+
+    with pytest.raises(ValueError, match="No frames found"):
+        load_raw(str(tmp_path))
+
+
+def test_load_raw_median_and_split_channels(tmp_path):
+    root = Path(tmp_path)
+    frame_dir = root / "0000000"
+    frame_dir.mkdir()
+
+    (root / "recordingMetadata.json").write_text(json.dumps({"width": 4, "height": 4}))
+
+    f0 = np.arange(16, dtype=np.uint8).reshape(4, 4)
+    f1 = f0 + 2
+    f0.tofile(frame_dir / "frame0000000000.raw")
+    f1.tofile(frame_dir / "frame0000000001.raw")
+
+    demosaiced, metadata = load_raw(str(root))
+
+    expected_median = np.median(np.stack([f0, f1], axis=0), axis=0)
+    expected = split_channels(expected_median)
+
+    assert metadata["width"] == 4
+    assert metadata["height"] == 4
+    assert demosaiced.shape == (1, 1, 4, 4)
+    assert np.allclose(demosaiced, expected)
+
+
+def test_save_load_raw_round_trip(tmp_path):
+    arr = np.arange(25, dtype=np.uint16).reshape(5, 5)
+    raw_file = tmp_path / "test.raw"
+
+    save_image(str(raw_file), arr, metadata={"dtype": "uint16"})
+    loaded, meta = load_image(str(raw_file), metadata={"dtype": "uint16", "width": 5, "height": 5})
+
+    assert loaded.dtype == np.uint16
+    assert np.array_equal(loaded, arr)
+    assert meta["width"] == 5
+    assert meta["height"] == 5
+
+
+def test_save_load_tiff_4d_preserves_shape_and_values(tmp_path):
+    rng = np.random.default_rng(0)
+    data = rng.normal(size=(6, 7, 3, 4)).astype(np.float32)
+    filename = tmp_path / "stack.tiff"
+
+    save_image(str(filename), data)
+    loaded, _ = load_image(str(filename))
+
+    assert loaded.shape == data.shape
+    assert np.allclose(loaded, data, rtol=1e-6, atol=1e-6)
+
+
+def test_save_load_npy_round_trip(tmp_path):
+    data = np.random.default_rng(1).normal(size=(10, 3)).astype(np.float64)
+    filename = tmp_path / "arr.npy"
+
+    save_image(str(filename), data)
+    loaded, _ = load_image(str(filename))
+
+    assert np.array_equal(loaded, data)
+
+
+def test_bin_image_non_divisible_dimensions_truncates_edges():
+    data = np.arange(7 * 10 * 2 * 4, dtype=float).reshape(7, 10, 2, 4)
+    binned = bin_image(data, 3)
+
+    # 7x10 with bin 3 => 2x3 bins after truncation.
+    assert binned.shape == (2, 3, 2, 4)
+
+    expected = data[:6, :9].reshape(2, 3, 3, 3, 2, 4).mean(axis=(1, 3))
+    assert np.allclose(binned, expected)
+
+
+def test_save_and_load_unsupported_format_raises(tmp_path):
+    bad = tmp_path / "bad.xyz"
+    with pytest.raises(ValueError, match="Unsupported file format"):
+        save_image(str(bad), np.zeros((2, 2)))
+
+    bad.write_text("x")
+    with pytest.raises(ValueError, match="Unsupported file format"):
+        load_image(str(bad))

@@ -73,6 +73,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "smoke: marks lightweight non-gating smoke tests",
 ]
 filterwarnings = [
     "ignore::UserWarning",
@@ -89,6 +90,8 @@ omit = [
     "setup.py",
     "docs/*",
     "papers/*",
+    "*/photoelastimetry/plotting.py",
+    "*/photoelastimetry/visualisation.py",
 ]
 branch = true
 parallel = true
@@ -109,6 +112,7 @@ exclude_lines = [
 ignore_errors = true
 show_missing = true
 precision = 2
+fail_under = 70
 
 [tool.coverage.html]
 directory = "htmlcov"

@@ -205,11 +205,13 @@ def mueller_matrix_sensitivity(theta, delta):
     dM_dtheta[..., 2, 3] = -dc2 * sd
     dM_ddelta[..., 2, 3] = -c2 * cd
 
-    # 3,1: 0
+    # 3,1: -s2*sd
+    dM_dtheta[..., 3, 1] = -ds2 * sd
+    dM_ddelta[..., 3, 1] = -s2 * cd
 
-    # 3,2: -s2*sd
-    dM_dtheta[..., 3, 2] = -ds2 * sd
-    dM_ddelta[..., 3, 2] = -s2 * cd
+    # 3,2: c2*sd
+    dM_dtheta[..., 3, 2] = dc2 * sd
+    dM_ddelta[..., 3, 2] = c2 * cd
 
     # 3,3: cd
     dM_dtheta[..., 3, 3] = 0

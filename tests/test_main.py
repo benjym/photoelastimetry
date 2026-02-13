@@ -203,6 +203,113 @@ class TestImageToStress:
             with pytest.raises(ValueError, match="Nested solver config blocks"):
                 main.image_to_stress(params)
 
+    def test_image_to_stress_rejects_missing_boundary_mask_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+
+            params = self._base_params(input_file)
+            params["boundary_mask_file"] = os.path.join(tmpdir, "missing_mask.npy")
+            with pytest.raises(ValueError, match="Boundary mask file not found"):
+                main.image_to_stress(params)
+
+    def test_image_to_stress_rejects_boundary_mask_shape_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            mask_file = os.path.join(tmpdir, "mask.npy")
+            io.save_image(input_file, data)
+            io.save_image(mask_file, np.ones((2, 2), dtype=np.uint8))
+
+            params = self._base_params(input_file)
+            params["boundary_mask_file"] = mask_file
+            with pytest.raises(ValueError, match="Boundary mask shape must be"):
+                main.image_to_stress(params)
+
+    def test_image_to_stress_rejects_missing_boundary_value_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+
+            params = self._base_params(input_file)
+            params["boundary_values_files"] = {"xx": os.path.join(tmpdir, "missing_xx.npy")}
+            with pytest.raises(ValueError, match="Boundary values file for 'xx' not found"):
+                main.image_to_stress(params)
+
+    def test_image_to_stress_rejects_boundary_value_shape_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            bad_xx = os.path.join(tmpdir, "bad_xx.npy")
+            io.save_image(input_file, data)
+            io.save_image(bad_xx, np.ones((3, 3), dtype=float))
+
+            params = self._base_params(input_file)
+            params["boundary_values_files"] = {"xx": bad_xx}
+            with pytest.raises(ValueError, match="Boundary values 'xx' shape must be"):
+                main.image_to_stress(params)
+
+    def test_image_to_stress_rejects_external_potential_conflict(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            potential_file = os.path.join(tmpdir, "potential.npy")
+            io.save_image(input_file, data)
+            io.save_image(potential_file, np.zeros((3, 4), dtype=float))
+
+            params = self._base_params(input_file)
+            params["external_potential_file"] = potential_file
+            params["external_potential_gradient"] = [1.0, -0.5]
+            with pytest.raises(
+                ValueError, match="Use either external_potential_file or external_potential_gradient"
+            ):
+                main.image_to_stress(params)
+
+    def test_image_to_stress_rejects_external_potential_file_shape_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            potential_file = os.path.join(tmpdir, "potential.npy")
+            io.save_image(input_file, data)
+            io.save_image(potential_file, np.zeros((2, 2), dtype=float))
+
+            params = self._base_params(input_file)
+            params["external_potential_file"] = potential_file
+            with pytest.raises(ValueError, match="External potential shape must be"):
+                main.image_to_stress(params)
+
+    def test_image_to_stress_rejects_invalid_external_gradient_shape(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+
+            params = self._base_params(input_file)
+            params["external_potential_gradient"] = [1.0, 2.0, 3.0]
+            with pytest.raises(ValueError, match="external_potential_gradient must be"):
+                main.image_to_stress(params)
+
+    def test_image_to_stress_external_gradient_constructs_and_adds_potential(self, _mock_optimise_pipeline):
+        _mock_seeding, mock_recover = _mock_optimise_pipeline
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 4, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+
+            params = self._base_params(input_file)
+            params["external_potential_gradient"] = [2.0, -1.0]
+            stress_map = main.image_to_stress(params)
+
+            ext = mock_recover.call_args.kwargs["external_potential"]
+            y_idx, x_idx = np.indices((3, 4), dtype=float)
+            expected = 2.0 * x_idx - 1.0 * y_idx
+            assert np.allclose(ext, expected)
+            assert np.allclose(stress_map[:, :, 0], 1.0 + expected)
+            assert np.allclose(stress_map[:, :, 1], 2.0 + expected)
+            assert np.allclose(stress_map[:, :, 2], 0.5)
+
 
 class TestStressToImage:
     """Tests for stress_to_image function."""
@@ -288,6 +395,90 @@ class TestStressToImage:
                 assert synthetic.shape == (5, 5, 1, 4)
                 mock_plot.assert_called_once()
                 assert mock_plot.call_args[1]["filename"] == "output.png"
+
+    def test_stress_to_image_rejects_missing_stress_filename(self):
+        with pytest.raises(ValueError, match="Missing stress map path"):
+            main.stress_to_image({"thickness": 0.01, "lambda_light": 650e-9, "C": 3e-9})
+
+    def test_stress_to_image_rejects_missing_wavelengths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stress = np.random.rand(3, 3, 3).astype(np.float32)
+            stress_file = os.path.join(tmpdir, "stress.npy")
+            io.save_image(stress_file, stress)
+
+            with pytest.raises(ValueError, match="Missing wavelengths"):
+                main.stress_to_image({"stress_filename": stress_file, "thickness": 0.01, "C": 3e-9})
+
+    def test_stress_to_image_rejects_invalid_c_length(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stress = np.random.rand(3, 3, 3).astype(np.float32)
+            stress_file = os.path.join(tmpdir, "stress.npy")
+            io.save_image(stress_file, stress)
+
+            params = {
+                "stress_filename": stress_file,
+                "thickness": 0.01,
+                "wavelengths": [650e-9, 550e-9, 450e-9],
+                "C": [3e-9, 3e-9],  # wrong length
+            }
+            with pytest.raises(ValueError, match="C must be scalar or length 3"):
+                main.stress_to_image(params)
+
+    def test_stress_to_image_rejects_invalid_s_i_hat_length(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stress = np.random.rand(3, 3, 3).astype(np.float32)
+            stress_file = os.path.join(tmpdir, "stress.npy")
+            io.save_image(stress_file, stress)
+
+            params = {
+                "stress_filename": stress_file,
+                "thickness": 0.01,
+                "lambda_light": 650e-9,
+                "C": 3e-9,
+                "S_i_hat": [1.0],
+            }
+            with pytest.raises(ValueError, match="S_i_hat must have length 2 or 3"):
+                main.stress_to_image(params)
+
+    def test_stress_to_image_rejects_unsupported_output_extension(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stress = np.random.rand(3, 3, 3).astype(np.float32)
+            stress_file = os.path.join(tmpdir, "stress.npy")
+            io.save_image(stress_file, stress)
+
+            params = {
+                "stress_filename": stress_file,
+                "thickness": 0.01,
+                "lambda_light": 650e-9,
+                "C": 3e-9,
+                "output_filename": os.path.join(tmpdir, "out.gif"),
+            }
+            with pytest.raises(ValueError, match="Unsupported output extension"):
+                main.stress_to_image(params)
+
+    def test_stress_to_image_uses_fallback_param_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stress = np.random.rand(3, 3, 3).astype(np.float32)
+            stress_file = os.path.join(tmpdir, "stress.npy")
+            io.save_image(stress_file, stress)
+
+            param_file = os.path.join(tmpdir, "params.json5")
+            output_file = os.path.join(tmpdir, "synthetic.npy")
+            with open(param_file, "w") as f:
+                json5.dump(
+                    {
+                        "stress_filename": stress_file,
+                        "thickness": 0.01,
+                        "wavelengths": [650e-9, 550e-9, 450e-9],
+                        "C": [3e-9, 3e-9, 3e-9],
+                        "output_filename": output_file,
+                    },
+                    f,
+                )
+
+            synthetic = main.stress_to_image({"p_filename": param_file})
+            assert synthetic.shape == (3, 3, 3, 4)
+            assert os.path.exists(output_file)
 
 
 class TestDemosaicRawImage:
@@ -422,6 +613,48 @@ class TestCLIFunctions:
 
         # Verify demosaic was called once
         mock_demosaic.assert_called_once()
+
+    @patch("photoelastimetry.main.demosaic_raw_image")
+    @patch("glob.glob")
+    @patch("tqdm.tqdm", side_effect=lambda seq, desc=None: seq)
+    @patch("argparse.ArgumentParser.parse_args")
+    def test_cli_demosaic_all_processes_each_file(self, mock_args, _mock_tqdm, mock_glob, mock_demosaic):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_a = os.path.join(tmpdir, "a.raw")
+            file_b = os.path.join(tmpdir, "nested", "b.raw")
+            os.makedirs(os.path.dirname(file_b), exist_ok=True)
+            Path(file_a).write_bytes(b"")
+            Path(file_b).write_bytes(b"")
+
+            mock_args.return_value = MagicMock(
+                input_file=tmpdir,
+                width=8,
+                height=8,
+                dtype="uint16",
+                output_prefix=None,
+                format="tiff",
+                all=True,
+            )
+            mock_glob.return_value = [file_a, file_b]
+
+            main.cli_demosaic()
+
+            assert mock_demosaic.call_count == 2
+
+    @patch("argparse.ArgumentParser.parse_args")
+    def test_cli_demosaic_all_requires_directory(self, mock_args):
+        mock_args.return_value = MagicMock(
+            input_file="not_a_directory.raw",
+            width=8,
+            height=8,
+            dtype=None,
+            output_prefix=None,
+            format="tiff",
+            all=True,
+        )
+
+        with pytest.raises(ValueError, match="input_file must be a directory"):
+            main.cli_demosaic()
 
 
 class TestIntegrationWithRealData:
