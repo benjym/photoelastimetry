@@ -132,6 +132,106 @@ def _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=
     return config, c_true, s_true
 
 
+def _make_synthetic_coupon_case(tmp_path):
+    height, width = 30, 42
+    thickness = 0.01
+    coupon_width_m = 0.012
+    wavelengths = np.array([650e-9, 550e-9, 450e-9], dtype=float)
+    c_true = np.array([2.4e-9, 2.7e-9, 3.1e-9], dtype=float)
+    s_true = np.array([0.88, 0.12, 0.0], dtype=float)
+
+    # [x0, x1, y0, y1]
+    gauge_roi = np.array([10, 32, 8, 22], dtype=int)
+    x0, x1, y0, y1 = gauge_roi.tolist()
+    roi_mask = np.zeros((height, width), dtype=bool)
+    roi_mask[y0:y1, x0:x1] = True
+
+    loads = [0.0, 40.0, 80.0, 120.0, 160.0]
+
+    offset = np.array(
+        [
+            [0.020, 0.021, 0.022, 0.019],
+            [0.023, 0.024, 0.025, 0.022],
+            [0.018, 0.019, 0.020, 0.021],
+        ],
+        dtype=float,
+    )
+    scale = np.array(
+        [
+            [0.93, 0.94, 0.95, 0.92],
+            [0.91, 0.92, 0.93, 0.90],
+            [0.96, 0.95, 0.94, 0.97],
+        ],
+        dtype=float,
+    )
+
+    dark = np.broadcast_to(offset[np.newaxis, np.newaxis, :, :], (height, width, 3, 4)).copy()
+    blank = np.broadcast_to(
+        (offset + 1.0 / scale)[np.newaxis, np.newaxis, :, :], (height, width, 3, 4)
+    ).copy()
+
+    dark_file = tmp_path / "coupon_dark.npy"
+    blank_file = tmp_path / "coupon_blank.npy"
+    io.save_image(str(dark_file), dark.astype(np.float32))
+    io.save_image(str(blank_file), blank.astype(np.float32))
+
+    load_steps = []
+    for idx, load in enumerate(loads):
+        sigma = load / (thickness * coupon_width_m)
+        sigma_xx = np.full((height, width), sigma, dtype=float)
+        sigma_yy = np.zeros((height, width), dtype=float)
+        sigma_xy = np.zeros((height, width), dtype=float)
+
+        corrected = np.zeros((height, width, 3, 4), dtype=float)
+        for c, wl in enumerate(wavelengths):
+            i0, i45, i90, i135 = simulate_four_step_polarimetry(
+                sigma_xx, sigma_yy, sigma_xy, c_true[c], 1.0, thickness, wl, s_true
+            )
+            corrected[:, :, c, 0] = i0
+            corrected[:, :, c, 1] = i45
+            corrected[:, :, c, 2] = i90
+            corrected[:, :, c, 3] = i135
+
+        corrected[~roi_mask, :, :] = 1.0
+        raw = corrected / scale[np.newaxis, np.newaxis, :, :] + offset[np.newaxis, np.newaxis, :, :]
+
+        image_file = tmp_path / f"coupon_load_{idx}.npy"
+        io.save_image(str(image_file), raw.astype(np.float32))
+        load_steps.append({"load": float(load), "image_file": str(image_file)})
+
+    config = {
+        "method": "coupon_test",
+        "wavelengths": wavelengths.tolist(),
+        "thickness": thickness,
+        "nu": 1.0,
+        "geometry": {
+            "gauge_roi_px": gauge_roi.tolist(),
+            "coupon_width_m": coupon_width_m,
+            "load_axis": "x",
+            "transverse_stress_ratio": 0.0,
+            "roi_margin_px": 1,
+        },
+        "load_steps": load_steps,
+        "dark_frame_file": str(dark_file),
+        "blank_frame_file": str(blank_file),
+        "fit": {
+            "max_points": 800,
+            "seed": 3,
+            "loss": "soft_l1",
+            "f_scale": 0.05,
+            "max_nfev": 200,
+            "initial_C": [2.2e-9, 2.6e-9, 3.0e-9],
+            "initial_S_i_hat": [0.85, 0.1, 0.0],
+            "c_relative_bounds": [0.8, 1.2],
+            "prior_weight": 8000.0,
+        },
+        "output_profile": str(tmp_path / "coupon_calibration_profile.json5"),
+        "output_report": str(tmp_path / "coupon_calibration_report.md"),
+        "output_diagnostics": str(tmp_path / "coupon_calibration_diagnostics.npz"),
+    }
+    return config, c_true, s_true
+
+
 def test_calibration_residuals_near_zero_for_noiseless_data(tmp_path):
     config, c_true, s_true = _make_synthetic_calibration_case(tmp_path, noisy=False)
     validated = calibrate.validate_calibration_config(config)
@@ -241,3 +341,27 @@ def test_end_to_end_writes_profile_report_and_diagnostics(tmp_path):
 
     loaded = calibrate.load_calibration_profile(result["profile_file"])
     assert loaded["method"] == "brazilian_disk"
+
+
+def test_coupon_test_end_to_end_fit_and_profile(tmp_path):
+    config, c_true, s_true = _make_synthetic_coupon_case(tmp_path)
+    result = calibrate.run_calibration(config)
+    profile = result["profile"]
+
+    assert profile["method"] == "coupon_test"
+    assert np.allclose(np.asarray(profile["C"], dtype=float), c_true, rtol=0.2, atol=0.0)
+    assert np.allclose(np.asarray(profile["S_i_hat"], dtype=float)[:2], s_true[:2], atol=0.12)
+    assert profile["fit_metrics"]["success"]
+
+    loaded = calibrate.load_calibration_profile(result["profile_file"])
+    assert loaded["method"] == "coupon_test"
+
+
+def test_coupon_validation_requires_coupon_geometry_fields(tmp_path):
+    config, _, _ = _make_synthetic_coupon_case(tmp_path)
+    bad = dict(config)
+    bad["geometry"] = dict(config["geometry"])
+    bad["geometry"].pop("coupon_width_m")
+
+    with pytest.raises(ValueError, match="coupon_width_m"):
+        calibrate.validate_calibration_config(bad)

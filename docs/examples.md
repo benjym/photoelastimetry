@@ -140,6 +140,40 @@ Where `params.json5` includes:
 }
 ```
 
+## Example 6: Calibrate with a Coupon Test
+
+For a uniaxial coupon, specify a gauge ROI and coupon width:
+
+```bash
+cat > coupon_calibration_params.json5 << EOF_JSON
+{
+  "method": "coupon_test",
+  "wavelengths": [650, 550, 450],
+  "thickness": 0.01,
+  "geometry": {
+    "gauge_roi_px": [200, 800, 300, 700],
+    "coupon_width_m": 0.012,
+    "load_axis": "x",
+    "transverse_stress_ratio": 0.0,
+    "roi_margin_px": 5
+  },
+  "dark_frame_file": "coupon_calibration/dark.npy",
+  "blank_frame_file": "coupon_calibration/blank.npy",
+  "load_steps": [
+    {"load": 0.0, "image_file": "coupon_calibration/load_000.npy"},
+    {"load": 50.0, "image_file": "coupon_calibration/load_050.npy"},
+    {"load": 100.0, "image_file": "coupon_calibration/load_100.npy"},
+    {"load": 150.0, "image_file": "coupon_calibration/load_150.npy"}
+  ],
+  "output_profile": "coupon_calibration/profile.json5",
+  "output_report": "coupon_calibration/report.md",
+  "output_diagnostics": "coupon_calibration/diagnostics.npz"
+}
+EOF_JSON
+
+calibrate-photoelastimetry coupon_calibration_params.json5
+```
+
 ## Additional Resources
 
 - See the [API Reference](reference/index.md) for detailed function documentation

@@ -4,7 +4,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from photoelastimetry.io import bin_image, load_image, load_raw, read_raw, save_image, split_channels
+from photoelastimetry.io import (
+    bin_image,
+    list_supported_bayer_pixel_formats,
+    load_image,
+    load_raw,
+    read_raw,
+    save_image,
+    split_channels,
+)
 
 
 def test_split_channels_known_superpixel_mapping():
@@ -39,6 +47,65 @@ def test_read_raw_invalid_size_raises(tmp_path):
 
     with pytest.raises(ValueError, match="File size does not match expected size"):
         read_raw(str(raw_file), {"width": 10, "height": 10})
+
+
+def test_read_raw_uses_pixel_format_bayer_rg8(tmp_path):
+    arr = np.arange(36, dtype=np.uint8).reshape(6, 6)
+    raw_file = tmp_path / "frame_rg8.raw"
+    arr.tofile(raw_file)
+
+    metadata = {"width": 6, "height": 6, "pixelFormat": 17301513}  # 0x01080009 BayerRG8
+    loaded = read_raw(str(raw_file), metadata)
+
+    assert metadata["dtype"] == "uint8"
+    assert metadata["bit_depth"] == 8
+    assert metadata["pixel_format_name"] == "BayerRG8"
+    assert loaded.shape == (6, 6)
+    assert np.array_equal(np.asarray(loaded), arr)
+
+
+def test_read_raw_uses_pixel_format_bayer_rg10(tmp_path):
+    arr = np.arange(36, dtype=np.uint16).reshape(6, 6)
+    raw_file = tmp_path / "frame_rg10.raw"
+    arr.tofile(raw_file)
+
+    metadata = {"width": 6, "height": 6, "pixelFormat": "0x0110000D"}  # BayerRG10
+    loaded = read_raw(str(raw_file), metadata)
+
+    assert metadata["dtype"] == "uint16"
+    assert metadata["bit_depth"] == 10
+    assert metadata["pixel_format_name"] == "BayerRG10"
+    assert loaded.shape == (6, 6)
+    assert np.array_equal(np.asarray(loaded), arr)
+
+
+def test_read_raw_pixel_format_size_mismatch_raises(tmp_path):
+    arr = np.arange(36, dtype=np.uint8).reshape(6, 6)
+    raw_file = tmp_path / "bad_size.raw"
+    arr.tofile(raw_file)
+
+    metadata = {"width": 6, "height": 6, "pixelFormat": 17825805}  # BayerRG10 expects uint16 payload size
+    with pytest.raises(ValueError, match="does not match expected size for BayerRG10"):
+        read_raw(str(raw_file), metadata)
+
+
+def test_read_raw_unknown_pixel_format_raises(tmp_path):
+    arr = np.arange(36, dtype=np.uint8).reshape(6, 6)
+    raw_file = tmp_path / "unknown_pf.raw"
+    arr.tofile(raw_file)
+
+    metadata = {"width": 6, "height": 6, "pixelFormat": 123}
+    with pytest.raises(ValueError, match="Unsupported pixelFormat"):
+        read_raw(str(raw_file), metadata)
+
+
+def test_list_supported_bayer_pixel_formats():
+    formats = list_supported_bayer_pixel_formats()
+
+    assert len(formats) == 12
+    assert formats[17301513]["name"] == "BayerRG8"
+    assert formats[17825805]["name"] == "BayerRG10"
+    assert formats[17825809]["name"] == "BayerRG12"
 
 
 def test_load_raw_missing_metadata_raises(tmp_path):

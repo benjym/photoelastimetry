@@ -5,32 +5,104 @@ from glob import glob
 import numpy as np
 from tqdm import tqdm
 
+SUPPORTED_BAYER_PIXEL_FORMATS = {
+    # 8-bit Bayer
+    0x01080008: {"name": "BayerGR8", "bit_depth": 8, "dtype": "uint8", "bytes_per_pixel": 1},
+    0x01080009: {"name": "BayerRG8", "bit_depth": 8, "dtype": "uint8", "bytes_per_pixel": 1},
+    0x0108000A: {"name": "BayerGB8", "bit_depth": 8, "dtype": "uint8", "bytes_per_pixel": 1},
+    0x0108000B: {"name": "BayerBG8", "bit_depth": 8, "dtype": "uint8", "bytes_per_pixel": 1},
+    # 10-bit Bayer (stored in 16-bit containers)
+    0x0110000C: {"name": "BayerGR10", "bit_depth": 10, "dtype": "uint16", "bytes_per_pixel": 2},
+    0x0110000D: {"name": "BayerRG10", "bit_depth": 10, "dtype": "uint16", "bytes_per_pixel": 2},
+    0x0110000E: {"name": "BayerGB10", "bit_depth": 10, "dtype": "uint16", "bytes_per_pixel": 2},
+    0x0110000F: {"name": "BayerBG10", "bit_depth": 10, "dtype": "uint16", "bytes_per_pixel": 2},
+    # 12-bit Bayer (stored in 16-bit containers)
+    0x01100010: {"name": "BayerGR12", "bit_depth": 12, "dtype": "uint16", "bytes_per_pixel": 2},
+    0x01100011: {"name": "BayerRG12", "bit_depth": 12, "dtype": "uint16", "bytes_per_pixel": 2},
+    0x01100012: {"name": "BayerGB12", "bit_depth": 12, "dtype": "uint16", "bytes_per_pixel": 2},
+    0x01100013: {"name": "BayerBG12", "bit_depth": 12, "dtype": "uint16", "bytes_per_pixel": 2},
+}
+
+
+def list_supported_bayer_pixel_formats():
+    """
+    Return the supported Bayer pixelFormat descriptors keyed by PFNC code.
+    """
+    return {code: dict(spec) for code, spec in SUPPORTED_BAYER_PIXEL_FORMATS.items()}
+
+
+def _format_supported_bayer_pixel_formats():
+    entries = []
+    for code in sorted(SUPPORTED_BAYER_PIXEL_FORMATS):
+        spec = SUPPORTED_BAYER_PIXEL_FORMATS[code]
+        entries.append(f"{spec['name']} ({code} / 0x{code:08X})")
+    return ", ".join(entries)
+
+
+def _parse_pixel_format_code(value):
+    if isinstance(value, str):
+        value = value.strip()
+        if value.lower().startswith("0x"):
+            return int(value, 16)
+        return int(value, 10)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    raise ValueError(f"pixelFormat must be an integer or string representation. Got {type(value).__name__}.")
+
 
 def read_raw(filename, metadata):
-    with open(filename, "rb") as f:
-        # work out if it is 8bit or 16 bit
-        eight_bit_file_size = metadata["width"] * metadata["height"] * 1
-        actual_file_size = f.seek(0, 2)
+    width = int(metadata["width"])
+    height = int(metadata["height"])
+    if width <= 0 or height <= 0:
+        raise ValueError(f"width and height must be positive. Got width={width}, height={height}.")
 
+    actual_file_size = os.path.getsize(filename)
+
+    if "pixelFormat" in metadata and metadata["pixelFormat"] is not None:
+        pixel_format = _parse_pixel_format_code(metadata["pixelFormat"])
+        metadata["pixelFormat"] = pixel_format
+        pixel_spec = SUPPORTED_BAYER_PIXEL_FORMATS.get(pixel_format)
+        if pixel_spec is None:
+            supported = _format_supported_bayer_pixel_formats()
+            raise ValueError(
+                f"Unsupported pixelFormat {pixel_format} (0x{pixel_format:08X}). "
+                f"Supported Bayer formats: {supported}"
+            )
+
+        expected_file_size = width * height * pixel_spec["bytes_per_pixel"]
+        if actual_file_size != expected_file_size:
+            raise ValueError(
+                f"File size does not match expected size for {pixel_spec['name']} "
+                f"({pixel_spec['bit_depth']}-bit). Got {actual_file_size} bytes, "
+                f"expected {expected_file_size} bytes for {width}x{height}."
+            )
+        metadata["dtype"] = pixel_spec["dtype"]
+        metadata["bit_depth"] = pixel_spec["bit_depth"]
+        metadata["pixel_format_name"] = pixel_spec["name"]
+    elif "dtype" in metadata:
+        dtype = np.dtype(metadata["dtype"])
+        expected_file_size = width * height * dtype.itemsize
+        if actual_file_size != expected_file_size:
+            raise ValueError(
+                f"File size does not match expected size for dtype={dtype.name}. "
+                f"Got {actual_file_size} bytes, expected {expected_file_size} bytes for {width}x{height}."
+            )
+        metadata["dtype"] = dtype.name
+    else:
+        # Backward-compatible fallback when pixelFormat is unavailable.
+        eight_bit_file_size = width * height
         if actual_file_size == eight_bit_file_size:
             metadata["dtype"] = "uint8"
         elif actual_file_size == eight_bit_file_size * 2:
             metadata["dtype"] = "uint16"
         else:
             raise ValueError(
-                f"File size does not match expected size for 8bit or 16bit data. Got {actual_file_size} bytes, expected {eight_bit_file_size} or {eight_bit_file_size * 2} bytes."
+                f"File size does not match expected size for 8bit or 16bit data. "
+                f"Got {actual_file_size} bytes, expected {eight_bit_file_size} or "
+                f"{eight_bit_file_size * 2} bytes for {width}x{height}."
             )
 
-        # f.seek(0)
-
-        data = np.memmap(f, dtype=metadata["dtype"], mode="r", offset=0)
-        data = data.reshape(
-            (
-                metadata["height"],
-                metadata["width"],
-            )
-        )
-        return data
+    return np.memmap(filename, dtype=metadata["dtype"], mode="r", shape=(height, width))
 
 
 def load_raw(foldername):
@@ -225,15 +297,7 @@ def load_image(filename, metadata=None):
     if filename.endswith(".npy"):
         data = np.load(filename)
     elif filename.endswith(".raw"):
-        with open(filename, "rb") as f:
-            data = np.memmap(
-                f,
-                dtype=metadata["dtype"],
-                mode="r",
-                offset=0,
-                shape=(metadata["height"], metadata["width"]),
-            )
-            data = np.array(data)
+        data = np.array(read_raw(filename, metadata))
     elif filename.endswith(".png") or filename.endswith(".jpg") or filename.endswith(".jpeg"):
         import matplotlib.pyplot as plt
 

@@ -90,7 +90,7 @@ The JSON5 parameter file should contain:
 
 ### calibrate-photoelastimetry
 
-Calibrates `C`, `S_i_hat`, and blank correction from known-load Brazilian-disk data.
+Calibrates `C`, `S_i_hat`, and blank correction from known-load calibration data.
 
 ```bash
 calibrate-photoelastimetry <json_filename>
@@ -98,16 +98,20 @@ calibrate-photoelastimetry <json_filename>
 
 Required calibration config fields:
 
-- `method`: `brazilian_disk`
+- `method`: `brazilian_disk` or `coupon_test`
 - `wavelengths`
 - `thickness`
-- `geometry`: `radius_m`, `center_px`, `pixels_per_meter`
+- `geometry`:
+  - `brazilian_disk`: `radius_m`, `center_px`, `pixels_per_meter`
+  - `coupon_test`: `gauge_roi_px`, `coupon_width_m`
 - `load_steps`: list of `{image_file, load}` with at least one no-load and three loaded steps
 
 Optional calibration config fields:
 
 - `dark_frame_file` + `blank_frame_file`
-- `geometry.edge_margin_fraction`, `geometry.contact_exclusion_fraction`
+- method-specific geometry options:
+  - disk: `edge_margin_fraction`, `contact_exclusion_fraction`
+  - coupon: `load_axis`, `transverse_stress_ratio`, `roi_margin_px`
 - `fit.max_points`, `fit.seed`, `fit.loss`, `fit.f_scale`, `fit.max_nfev`, `fit.initial_C`, `fit.initial_S_i_hat`
 - `output_profile`, `output_report`, `output_diagnostics`
 
@@ -153,6 +157,23 @@ demosaic-raw images/ --format png --all
 
 - `tiff`: Creates a single TIFF file with shape [H/4, W/4, 4, 4] containing all colour channels (R, G1, G2, B) and polarisation angles (0°, 45°, 90°, 135°)
 - `png`: Creates 4 PNG files (one per polarisation angle), each containing all colour channels as a composite image
+
+**Supported `recordingMetadata.json` `pixelFormat` values (Bayer 8/10/12):**
+
+- `BayerGR8`: `17301512` (`0x01080008`) -> `uint8`
+- `BayerRG8`: `17301513` (`0x01080009`) -> `uint8`
+- `BayerGB8`: `17301514` (`0x0108000A`) -> `uint8`
+- `BayerBG8`: `17301515` (`0x0108000B`) -> `uint8`
+- `BayerGR10`: `17825804` (`0x0110000C`) -> `uint16` container (10-bit data)
+- `BayerRG10`: `17825805` (`0x0110000D`) -> `uint16` container (10-bit data)
+- `BayerGB10`: `17825806` (`0x0110000E`) -> `uint16` container (10-bit data)
+- `BayerBG10`: `17825807` (`0x0110000F`) -> `uint16` container (10-bit data)
+- `BayerGR12`: `17825808` (`0x01100010`) -> `uint16` container (12-bit data)
+- `BayerRG12`: `17825809` (`0x01100011`) -> `uint16` container (12-bit data)
+- `BayerGB12`: `17825810` (`0x01100012`) -> `uint16` container (12-bit data)
+- `BayerBG12`: `17825811` (`0x01100013`) -> `uint16` container (12-bit data)
+
+When `pixelFormat` is present, raw file size is checked against `width * height * bytes_per_pixel` for that format.
 
 ## Stress Analysis Method
 

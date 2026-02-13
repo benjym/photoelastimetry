@@ -127,9 +127,26 @@ demosaic-raw images/ --format png --all
 - `tiff`: Creates a single TIFF file with shape [H/4, W/4, 4, 4] containing all colour channels (R, G1, G2, B) and polarisation angles (0°, 45°, 90°, 135°)
 - `png`: Creates 4 PNG files (one per polarisation angle), each containing all colour channels as a composite image
 
+**Supported `recordingMetadata.json` `pixelFormat` values (Bayer 8/10/12):**
+
+- `BayerGR8`: `17301512` (`0x01080008`) -> `uint8`
+- `BayerRG8`: `17301513` (`0x01080009`) -> `uint8`
+- `BayerGB8`: `17301514` (`0x0108000A`) -> `uint8`
+- `BayerBG8`: `17301515` (`0x0108000B`) -> `uint8`
+- `BayerGR10`: `17825804` (`0x0110000C`) -> `uint16` container (10-bit data)
+- `BayerRG10`: `17825805` (`0x0110000D`) -> `uint16` container (10-bit data)
+- `BayerGB10`: `17825806` (`0x0110000E`) -> `uint16` container (10-bit data)
+- `BayerBG10`: `17825807` (`0x0110000F`) -> `uint16` container (10-bit data)
+- `BayerGR12`: `17825808` (`0x01100010`) -> `uint16` container (12-bit data)
+- `BayerRG12`: `17825809` (`0x01100011`) -> `uint16` container (12-bit data)
+- `BayerGB12`: `17825810` (`0x01100012`) -> `uint16` container (12-bit data)
+- `BayerBG12`: `17825811` (`0x01100013`) -> `uint16` container (12-bit data)
+
+When `pixelFormat` is present, raw file size is checked against `width * height * bytes_per_pixel` for that format.
+
 ### calibrate-photoelastimetry
 
-Calibrates stress-optic coefficients (`C`), incoming polarisation (`S_i_hat`), and blank correction from a Brazilian-disk multi-load sequence.
+Calibrates stress-optic coefficients (`C`), incoming polarisation (`S_i_hat`), and blank correction from known-load multi-step data.
 
 ```bash
 calibrate-photoelastimetry <json_filename>
@@ -141,15 +158,22 @@ calibrate-photoelastimetry <json_filename>
 
 **Calibration JSON5 parameters:**
 
-- `method`: Must be `brazilian_disk` (default)
+- `method`: `brazilian_disk` (default) or `coupon_test`
 - `wavelengths`: Illumination wavelengths (nm or m)
 - `thickness`: Sample thickness (m)
-- `geometry`: Disk geometry and registration
-  - `radius_m`: Disk radius in meters
-  - `center_px`: Disk center `[cx, cy]` in image pixels
-  - `pixels_per_meter`: Pixel scale
-  - `edge_margin_fraction` (optional, default `0.9`)
-  - `contact_exclusion_fraction` (optional, default `0.12`)
+- `geometry`:
+  - for `brazilian_disk`:
+    - `radius_m`: Disk radius in meters
+    - `center_px`: Disk center `[cx, cy]` in image pixels
+    - `pixels_per_meter`: Pixel scale
+    - `edge_margin_fraction` (optional, default `0.9`)
+    - `contact_exclusion_fraction` (optional, default `0.12`)
+  - for `coupon_test`:
+    - `gauge_roi_px`: Gauge ROI `[x0, x1, y0, y1]`
+    - `coupon_width_m`: Coupon gauge width in meters
+    - `load_axis` (optional): `'x'` (default) or `'y'`
+    - `transverse_stress_ratio` (optional, default `0.0`)
+    - `roi_margin_px` (optional, default `0`)
 - `load_steps`: List of calibration images with known loads
   - Each step requires `image_file` and `load`
   - Include at least one no-load step (`load` ≈ `0`) and at least three non-zero loads

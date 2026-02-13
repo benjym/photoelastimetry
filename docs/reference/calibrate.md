@@ -1,6 +1,6 @@
 # calibrate
 
-Calibration workflow for Brazilian-disk experiments.
+Calibration workflows for `brazilian_disk` and `coupon_test` experiments.
 
 This module provides:
 

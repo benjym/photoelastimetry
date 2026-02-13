@@ -1,9 +1,13 @@
 """
-Calibration workflow for Brazilian-disk photoelastimetry experiments.
+Calibration workflows for photoelastimetry experiments.
 
 This module fits per-wavelength stress-optic coefficients (C), incoming
 polarisation state (S_i_hat), and optional detector blank correction from a
 multi-load calibration sequence.
+
+Supported calibration methods:
+- ``brazilian_disk``: diametrically-loaded disk with analytical stress field.
+- ``coupon_test``: uniaxial coupon with nominal stress in a gauge ROI.
 """
 
 import json
@@ -95,8 +99,12 @@ def load_calibration_profile(profile_file):
     if missing:
         raise ValueError(f"Calibration profile missing required keys: {missing}")
 
-    if profile["method"] != "brazilian_disk":
-        raise ValueError(f"Unsupported calibration method '{profile['method']}'.")
+    supported_methods = {"brazilian_disk", "coupon_test"}
+    if profile["method"] not in supported_methods:
+        raise ValueError(
+            f"Unsupported calibration method '{profile['method']}'. "
+            f"Supported methods: {sorted(supported_methods)}."
+        )
 
     wavelengths = _normalise_wavelengths(profile["wavelengths"])
     C = _as_float_array(profile["C"], expected_length=wavelengths.size, name="C")
@@ -227,8 +235,9 @@ def validate_calibration_config(config):
         Normalised configuration with defaults.
     """
     method = config.get("method", "brazilian_disk")
-    if method != "brazilian_disk":
-        raise ValueError("Only method='brazilian_disk' is supported in this release.")
+    supported_methods = {"brazilian_disk", "coupon_test"}
+    if method not in supported_methods:
+        raise ValueError(f"Unsupported method='{method}'. Supported methods are {sorted(supported_methods)}.")
 
     if "wavelengths" not in config:
         raise ValueError("Calibration config must include 'wavelengths'.")
@@ -241,27 +250,71 @@ def validate_calibration_config(config):
         raise ValueError("thickness must be positive.")
 
     geometry = dict(config.get("geometry", {}))
-    for key in ("radius_m", "center_px", "pixels_per_meter"):
-        if key not in geometry:
-            raise ValueError(f"geometry must include '{key}'.")
+    if method == "brazilian_disk":
+        for key in ("radius_m", "center_px", "pixels_per_meter"):
+            if key not in geometry:
+                raise ValueError(f"geometry must include '{key}' for method='brazilian_disk'.")
 
-    radius_m = float(geometry["radius_m"])
-    pixels_per_meter = float(geometry["pixels_per_meter"])
-    center_px = np.asarray(geometry["center_px"], dtype=float)
+        radius_m = float(geometry["radius_m"])
+        pixels_per_meter = float(geometry["pixels_per_meter"])
+        center_px = np.asarray(geometry["center_px"], dtype=float)
 
-    if radius_m <= 0:
-        raise ValueError("geometry.radius_m must be positive.")
-    if pixels_per_meter <= 0:
-        raise ValueError("geometry.pixels_per_meter must be positive.")
-    if center_px.size != 2:
-        raise ValueError("geometry.center_px must have two elements [cx, cy].")
+        if radius_m <= 0:
+            raise ValueError("geometry.radius_m must be positive.")
+        if pixels_per_meter <= 0:
+            raise ValueError("geometry.pixels_per_meter must be positive.")
+        if center_px.size != 2:
+            raise ValueError("geometry.center_px must have two elements [cx, cy].")
 
-    edge_margin_fraction = float(geometry.get("edge_margin_fraction", 0.9))
-    contact_exclusion_fraction = float(geometry.get("contact_exclusion_fraction", 0.12))
-    if not (0 < edge_margin_fraction <= 1):
-        raise ValueError("geometry.edge_margin_fraction must be in (0, 1].")
-    if not (0 <= contact_exclusion_fraction < 1):
-        raise ValueError("geometry.contact_exclusion_fraction must be in [0, 1).")
+        edge_margin_fraction = float(geometry.get("edge_margin_fraction", 0.9))
+        contact_exclusion_fraction = float(geometry.get("contact_exclusion_fraction", 0.12))
+        if not (0 < edge_margin_fraction <= 1):
+            raise ValueError("geometry.edge_margin_fraction must be in (0, 1].")
+        if not (0 <= contact_exclusion_fraction < 1):
+            raise ValueError("geometry.contact_exclusion_fraction must be in [0, 1).")
+
+        geometry_validated = {
+            "radius_m": radius_m,
+            "center_px": center_px,
+            "pixels_per_meter": pixels_per_meter,
+            "edge_margin_fraction": edge_margin_fraction,
+            "contact_exclusion_fraction": contact_exclusion_fraction,
+        }
+    else:
+        for key in ("gauge_roi_px", "coupon_width_m"):
+            if key not in geometry:
+                raise ValueError(f"geometry must include '{key}' for method='coupon_test'.")
+
+        gauge_roi_px = np.asarray(geometry["gauge_roi_px"], dtype=int)
+        if gauge_roi_px.size != 4:
+            raise ValueError("geometry.gauge_roi_px must be [x0, x1, y0, y1].")
+        x0, x1, y0, y1 = [int(v) for v in gauge_roi_px]
+        if x0 >= x1 or y0 >= y1:
+            raise ValueError("geometry.gauge_roi_px must satisfy x0<x1 and y0<y1.")
+
+        coupon_width_m = float(geometry["coupon_width_m"])
+        if coupon_width_m <= 0:
+            raise ValueError("geometry.coupon_width_m must be positive.")
+
+        load_axis = str(geometry.get("load_axis", "x")).lower()
+        if load_axis not in {"x", "y"}:
+            raise ValueError("geometry.load_axis must be 'x' or 'y'.")
+
+        transverse_stress_ratio = float(geometry.get("transverse_stress_ratio", 0.0))
+        if not (-1.0 <= transverse_stress_ratio <= 1.0):
+            raise ValueError("geometry.transverse_stress_ratio must be in [-1, 1].")
+
+        roi_margin_px = int(geometry.get("roi_margin_px", 0))
+        if roi_margin_px < 0:
+            raise ValueError("geometry.roi_margin_px must be >= 0.")
+
+        geometry_validated = {
+            "gauge_roi_px": np.array([x0, x1, y0, y1], dtype=int),
+            "coupon_width_m": coupon_width_m,
+            "load_axis": load_axis,
+            "transverse_stress_ratio": transverse_stress_ratio,
+            "roi_margin_px": roi_margin_px,
+        }
 
     load_steps = list(config.get("load_steps", []))
     if len(load_steps) < 4:
@@ -302,13 +355,7 @@ def validate_calibration_config(config):
         "wavelengths": wavelengths,
         "thickness": thickness,
         "nu": float(config.get("nu", 1.0)),
-        "geometry": {
-            "radius_m": radius_m,
-            "center_px": center_px,
-            "pixels_per_meter": pixels_per_meter,
-            "edge_margin_fraction": edge_margin_fraction,
-            "contact_exclusion_fraction": contact_exclusion_fraction,
-        },
+        "geometry": geometry_validated,
         "load_steps": normalised_steps,
         "load_zero_tolerance": load_zero_tolerance,
         "dark_frame_file": config.get("dark_frame_file"),
@@ -347,6 +394,43 @@ def _build_disk_coordinates(height, width, geometry):
 
     roi_mask = core_mask & (~contact_mask)
     return X, Y, disk_mask, roi_mask
+
+
+def _build_coupon_masks(height, width, geometry):
+    """Build coupon gauge masks from pixel ROI configuration."""
+    x0, x1, y0, y1 = [int(v) for v in geometry["gauge_roi_px"]]
+    if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
+        raise ValueError(
+            f"geometry.gauge_roi_px {geometry['gauge_roi_px'].tolist()} is outside image bounds {(height, width)}."
+        )
+
+    roi_margin_px = int(geometry.get("roi_margin_px", 0))
+    if (x1 - x0) <= 2 * roi_margin_px or (y1 - y0) <= 2 * roi_margin_px:
+        raise ValueError("geometry.roi_margin_px is too large for the specified gauge_roi_px.")
+
+    coupon_mask = np.zeros((height, width), dtype=bool)
+    coupon_mask[y0:y1, x0:x1] = True
+
+    roi_mask = np.zeros((height, width), dtype=bool)
+    roi_mask[(y0 + roi_margin_px) : (y1 - roi_margin_px), (x0 + roi_margin_px) : (x1 - roi_margin_px)] = True
+
+    return coupon_mask, roi_mask
+
+
+def _coupon_stress_at_points(load, thickness, geometry, n_points):
+    """Compute nominal coupon stress components at sampled points."""
+    sigma_nominal = float(load) / (thickness * geometry["coupon_width_m"])
+    transverse = geometry.get("transverse_stress_ratio", 0.0) * sigma_nominal
+    axis = geometry.get("load_axis", "x")
+
+    if axis == "x":
+        sigma_xx = np.full(n_points, sigma_nominal, dtype=float)
+        sigma_yy = np.full(n_points, transverse, dtype=float)
+    else:
+        sigma_xx = np.full(n_points, transverse, dtype=float)
+        sigma_yy = np.full(n_points, sigma_nominal, dtype=float)
+    sigma_xy = np.zeros(n_points, dtype=float)
+    return sigma_xx, sigma_yy, sigma_xy
 
 
 def _load_and_validate_image(path, expected_shape=None):
@@ -441,8 +525,15 @@ def _build_dataset(config):
 
     corrected_images = [apply_blank_correction(image, blank_correction) for image in load_images]
 
-    X, Y, disk_mask, roi_mask = _build_disk_coordinates(H, W, config["geometry"])
-    roi_mask = roi_mask & disk_mask
+    if config["method"] == "brazilian_disk":
+        X, Y, model_mask, roi_mask = _build_disk_coordinates(H, W, config["geometry"])
+        roi_mask = roi_mask & model_mask
+    elif config["method"] == "coupon_test":
+        X = Y = None
+        model_mask, roi_mask = _build_coupon_masks(H, W, config["geometry"])
+    else:
+        raise ValueError(f"Unsupported method '{config['method']}'.")
+
     y_idx, x_idx = _prepare_sampling_points(roi_mask, config["fit"]["max_points"], config["fit"]["seed"])
 
     measured_steps = []
@@ -464,12 +555,20 @@ def _build_dataset(config):
         measured = np.stack([S1_hat[y_idx, x_idx, :], S2_hat[y_idx, x_idx, :]], axis=-1)
         measured_steps.append(measured)
 
-        sigma_xx, sigma_yy, sigma_xy = diametrical_stress_cartesian(
-            X, Y, P=load, R=config["geometry"]["radius_m"]
-        )
-        sigma_xx_steps.append(sigma_xx[y_idx, x_idx])
-        sigma_yy_steps.append(sigma_yy[y_idx, x_idx])
-        sigma_xy_steps.append(sigma_xy[y_idx, x_idx])
+        if config["method"] == "brazilian_disk":
+            sigma_xx, sigma_yy, sigma_xy = diametrical_stress_cartesian(
+                X, Y, P=load, R=config["geometry"]["radius_m"]
+            )
+            sigma_xx_steps.append(sigma_xx[y_idx, x_idx])
+            sigma_yy_steps.append(sigma_yy[y_idx, x_idx])
+            sigma_xy_steps.append(sigma_xy[y_idx, x_idx])
+        else:
+            sigma_xx, sigma_yy, sigma_xy = _coupon_stress_at_points(
+                load, config["thickness"], config["geometry"], y_idx.size
+            )
+            sigma_xx_steps.append(sigma_xx)
+            sigma_yy_steps.append(sigma_yy)
+            sigma_xy_steps.append(sigma_xy)
 
         if abs(load) <= no_load_tolerance:
             no_load_measurements.append(measured)
@@ -492,7 +591,9 @@ def _build_dataset(config):
         "sample_y": y_idx,
         "sample_x": x_idx,
         "roi_mask": roi_mask,
-        "disk_mask": disk_mask,
+        "model_mask": model_mask,
+        # Backward-compatible key retained for previous diagnostics consumers.
+        "disk_mask": model_mask,
         "blank_correction": blank_correction,
         "initial_s_i_hat": initial_s_i_hat,
     }
@@ -720,16 +821,24 @@ def _write_report(report_path, profile, config):
     for key, value in profile["fit_metrics"].items():
         lines.append(f"- {key}: `{value}`")
 
-    lines.extend(
-        [
-            "",
-            "## Geometry",
-            "",
-            f"- radius_m: `{config['geometry']['radius_m']}`",
-            f"- center_px: `{config['geometry']['center_px'].tolist()}`",
-            f"- pixels_per_meter: `{config['geometry']['pixels_per_meter']}`",
-        ]
-    )
+    lines.extend(["", "## Geometry", ""])
+    if config["method"] == "brazilian_disk":
+        lines.extend(
+            [
+                f"- radius_m: `{config['geometry']['radius_m']}`",
+                f"- center_px: `{config['geometry']['center_px'].tolist()}`",
+                f"- pixels_per_meter: `{config['geometry']['pixels_per_meter']}`",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"- gauge_roi_px: `{config['geometry']['gauge_roi_px'].tolist()}`",
+                f"- coupon_width_m: `{config['geometry']['coupon_width_m']}`",
+                f"- load_axis: `{config['geometry']['load_axis']}`",
+                f"- transverse_stress_ratio: `{config['geometry']['transverse_stress_ratio']}`",
+            ]
+        )
 
     with open(report_path, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -787,7 +896,7 @@ def run_calibration(config):
 
     profile = {
         "version": 1,
-        "method": "brazilian_disk",
+        "method": cfg["method"],
         "wavelengths": cfg["wavelengths"].tolist(),
         "C": fit_result["C"].tolist(),
         "S_i_hat": fit_result["S_i_hat"].tolist(),
@@ -804,6 +913,7 @@ def run_calibration(config):
     np.savez(
         output_diagnostics,
         roi_mask=dataset["roi_mask"],
+        model_mask=dataset["model_mask"],
         disk_mask=dataset["disk_mask"],
         sample_y=dataset["sample_y"],
         sample_x=dataset["sample_x"],
