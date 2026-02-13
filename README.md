@@ -52,6 +52,7 @@ The JSON5 parameter file should contain:
 - `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
 - `crop` (optional): Crop region as [y1, y2, x1, x2]
 - `debug` (optional): If true, display all channels for debugging
+- `solver` (optional): One of `stokes`, `intensity`, `global`, `global_mean_stress` (default)
 
 ### stress-to-image
 
@@ -73,13 +74,16 @@ stress-to-image params.json5
 
 The JSON5 parameter file should contain:
 
-- `p_filename`: Path to the photoelastimetry parameter file
-- `stress_filename`: Path to the stress field data file
-- `t`: Thickness of the photoelastic material
-- `lambda_light`: Wavelength of light used in the experiment
-- `C`: Stress-optic coefficient of the material
+- `stress_filename`: Path to the stress field data file (or legacy `s_filename`)
+- `thickness` (or legacy `t`): Thickness of the photoelastic material
+- `wavelengths` (nm or m) or legacy `lambda_light`: Illumination wavelengths
+- `C`: Stress-optic coefficient(s), scalar or one per wavelength
+- `S_i_hat` (optional): Incoming normalised Stokes vector `[S1_hat, S2_hat, S3_hat]`
+- `stress_order` (optional): `xx_yy_xy` (default) or legacy `xy_yy_xx`
 - `scattering` (optional): Gaussian filter sigma for scattering simulation
-- `output_filename` (optional): Path for the output image (default: "output.png")
+- `output_filename` (optional):
+  - `.tiff/.tif/.npy/.raw`: saves full synthetic stack `[H, W, n_wavelengths, 4]`
+  - `.png/.jpg/.jpeg`: saves a 2-panel fringe/isoclinic plot (default: `output.png`)
 
 ### demosaic-raw
 

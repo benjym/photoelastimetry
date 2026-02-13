@@ -18,12 +18,13 @@ configure_plots()
 wavelengths = np.array([650e-9, 532e-9, 473e-9])  # R, G, B wavelengths (m)
 C_values = np.array([2.3e-10, 2.5e-10, 2.7e-10])  # Stress-optic coefficients (1/Pa)
 nu = 1.0  # Solid fraction
-L = 0.01  # Sample thickness (m)
+L = 0.1  # Sample thickness (m)
 # S_i_hat = np.array([1, 0, 0])  # Incoming linearly polarised light at 0 degrees
 S_i_hat = np.array([0, 0, 1])  # Incoming circularly polarised light
 theta_test = 1  # Test angle (radians)
 n_max = 6  # max fringe order to search
 sigma_max = n_max * wavelengths.min() / (C_values.max() * nu * L)
+print(f"Max stress for n_max={n_max} is {sigma_max:.2e} Pa")
 n_tests = 50
 resolution = 50
 
@@ -184,6 +185,7 @@ for i, stress in tqdm(enumerate(stress_levels), total=len(stress_levels), desc="
 
 plt.colorbar(label="Median relative error", extend="both")
 plt.xscale("log")
+plt.yticks([0, 0.5, 1.0], ["0", r"$\frac{1}{2}$", "1"])
 plt.xlabel("Signal-to-noise ratio (SnR)")
 plt.ylabel(r"$\Delta\sigma/\sigma_\mathrm{max}$ (-)")  # (")
 plt.text(-0.32, 1.05, "(b)", transform=plt.gca().transAxes)
@@ -194,7 +196,7 @@ print("Done plotting stress level heatmap, now angle heatmap.")
 # GRAPH 2 ---- ANGLE VERSUS SnR
 
 angles = np.linspace(0.0, np.pi / 2.0, resolution)  # Fraction of sigma_max
-SnRs = np.logspace(0, 3, resolution)
+SnRs = np.logspace(0, 2, resolution)
 error_array = np.zeros((len(angles), len(SnRs)))
 plt.subplot(224)
 dSnR = np.sqrt(SnRs[1] / SnRs[0])

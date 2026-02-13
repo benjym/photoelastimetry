@@ -141,13 +141,13 @@ Generate synthetic photoelastic images from known stress fields:
 # Create parameter file for forward simulation
 cat > forward_params.json5 << EOF
 {
-  "p_filename": "experimental_params.json5",
   "stress_filename": "stress_field.npy",
-  "t": 0.005,
-  "lambda_light": 550e-9,
-  "C": 5e-11,
+  "thickness": 0.005,
+  "wavelengths": [650, 550, 450],
+  "C": [5e-11, 5e-11, 5e-11],
+  "S_i_hat": [1.0, 0.0, 0.0],
   "scattering": 2.0,
-  "output_filename": "synthetic_image.png"
+  "output_filename": "synthetic_stack.tiff"
 }
 EOF
 

@@ -7,10 +7,49 @@ from scipy.ndimage import gaussian_filter
 
 import photoelastimetry.io
 import photoelastimetry.optimiser.equilibrium
+import photoelastimetry.optimiser.equilibrium_mean_stress
 import photoelastimetry.optimiser.intensity
 import photoelastimetry.optimiser.stokes
 import photoelastimetry.plotting
 import photoelastimetry.seeding
+from photoelastimetry.image import compute_retardance, simulate_four_step_polarimetry
+
+
+def _normalise_wavelengths(wavelengths):
+    """Return wavelengths as a 1D float array in meters."""
+    wl = np.asarray(wavelengths, dtype=float)
+    if wl.ndim == 0:
+        wl = wl.reshape(1)
+    if np.max(wl) > 1e-6:
+        wl = wl * 1e-9
+    return wl
+
+
+def _load_array(path):
+    """Load an array from an image path via io.load_image."""
+    data, _ = photoelastimetry.io.load_image(path)
+    return data
+
+
+def _get_stress_components(stress_map, stress_order):
+    """
+    Extract (sigma_xx, sigma_yy, sigma_xy) from a stress map using the specified order.
+    """
+    if stress_map.ndim != 3 or stress_map.shape[2] != 3:
+        raise ValueError(f"Stress map must have shape [H, W, 3], got {stress_map.shape}")
+
+    if stress_order == "xx_yy_xy":
+        sigma_xx = stress_map[:, :, 0]
+        sigma_yy = stress_map[:, :, 1]
+        sigma_xy = stress_map[:, :, 2]
+    elif stress_order == "xy_yy_xx":
+        sigma_xy = stress_map[:, :, 0]
+        sigma_yy = stress_map[:, :, 1]
+        sigma_xx = stress_map[:, :, 2]
+    else:
+        raise ValueError(f"Unsupported stress_order '{stress_order}'. Use 'xx_yy_xy' or 'xy_yy_xx'.")
+
+    return sigma_xx, sigma_yy, sigma_xy
 
 
 def image_to_stress(params, output_filename=None):
@@ -77,16 +116,19 @@ def image_to_stress(params, output_filename=None):
 
     C = params["C"]  # Stress-optic coefficients in 1/Pa
     L = params["thickness"]  # Thickness in m
-    WAVELENGTHS = np.array(params["wavelengths"]) * 1e-9  # Wavelengths in m
+    WAVELENGTHS = _normalise_wavelengths(params["wavelengths"])
     NU = 1.0  # Solid sample
     if isinstance(C, list) or isinstance(C, np.ndarray):
-        C_VALUES = C
+        C_VALUES = np.asarray(C, dtype=float)
     else:
-        C_VALUES = [
-            C,
-            C,
-            C,
-        ]  # Stress-optic coefficients in 1/Pa
+        C_VALUES = np.array(
+            [
+                C,
+                C,
+                C,
+            ],
+            dtype=float,
+        )  # Stress-optic coefficients in 1/Pa
 
     # Get incoming polarisation state from config
     S_I_HAT = np.array(params["S_i_hat"])
@@ -95,7 +137,7 @@ def image_to_stress(params, output_filename=None):
         S_I_HAT = np.append(S_I_HAT, 0.0)  # Add S3_hat = 0 for backward compatibility
 
     # Calculate stress map from image
-    n_jobs = params.get("n_jobs", -1)  # Default to using all cores
+    n_jobs = params.get("n_jobs", -1)  # User can override to 1 on restricted systems
 
     # Phase Decomposed Seeding
     seeding_config = params.get("seeding", {})
@@ -103,8 +145,12 @@ def image_to_stress(params, output_filename=None):
     n_max = seeding_config.get("n_max", 6)
     sigma_max = seeding_config.get("sigma_max", 10e6)
 
+    solver = params.get("solver", "global_mean_stress")
     initial_stress_map = None
-    if use_seeding and params.get("solver") != "stokes":
+    run_seeding = solver in {"intensity", "global", "global_mean_stress"} or seeding_config.get(
+        "for_stokes", False
+    )
+    if use_seeding and run_seeding:
         print("Running phase decomposed seeding...")
         initial_stress_map = photoelastimetry.seeding.phase_decomposed_seeding(
             data,
@@ -117,29 +163,51 @@ def image_to_stress(params, output_filename=None):
             n_max=n_max,
         )
 
-    if params.get("solver") == "stokes":
-        stress_map = photoelastimetry.optimiser.stokes.recover_stress_map_stokes(
-            data,
-            WAVELENGTHS,
-            C_VALUES,
-            NU,
-            L,
-            S_I_HAT,
-            initial_guess_map=initial_stress_map,
-            n_jobs=n_jobs,
-        )
-    elif params.get("solver") == "intensity":
-        stress_map, success_map = photoelastimetry.optimiser.intensity.recover_stress_map_intensity(
-            data,
-            WAVELENGTHS,
-            C_VALUES,
-            NU,
-            L,
-            S_I_HAT,
-            initial_guess_map=initial_stress_map,
-            n_jobs=n_jobs,
-        )
-    elif params.get("solver") == "global":
+    if solver == "stokes":
+        stokes_kwargs = {
+            "image_stack": data,
+            "wavelengths": WAVELENGTHS,
+            "C_values": C_VALUES,
+            "nu": NU,
+            "L": L,
+            "S_i_hat": S_I_HAT,
+            "initial_guess_map": initial_stress_map,
+            "n_jobs": n_jobs,
+        }
+        try:
+            stress_map = photoelastimetry.optimiser.stokes.recover_stress_map_stokes(**stokes_kwargs)
+        except PermissionError:
+            if n_jobs != 1:
+                print("Stokes solver: Falling back to n_jobs=1 due system limits.")
+                stokes_kwargs["n_jobs"] = 1
+                stress_map = photoelastimetry.optimiser.stokes.recover_stress_map_stokes(**stokes_kwargs)
+            else:
+                raise
+    elif solver == "intensity":
+        intensity_kwargs = {
+            "image_stack": data,
+            "wavelengths": WAVELENGTHS,
+            "C_values": C_VALUES,
+            "nu": NU,
+            "L": L,
+            "S_i_hat": S_I_HAT,
+            "initial_guess_map": initial_stress_map,
+            "n_jobs": n_jobs,
+        }
+        try:
+            stress_map, success_map = photoelastimetry.optimiser.intensity.recover_stress_map_intensity(
+                **intensity_kwargs
+            )
+        except PermissionError:
+            if n_jobs != 1:
+                print("Intensity solver: Falling back to n_jobs=1 due system limits.")
+                intensity_kwargs["n_jobs"] = 1
+                stress_map, success_map = photoelastimetry.optimiser.intensity.recover_stress_map_intensity(
+                    **intensity_kwargs
+                )
+            else:
+                raise
+    elif solver == "global":
         # Global solver specific logic
         gs_params = params.get("global_solver", {})
 
@@ -161,8 +229,93 @@ def image_to_stress(params, output_filename=None):
             initial_stress_map=initial_stress_map,
             **gs_params,
         )
+    elif solver == "global_mean_stress":
+        ms_params = dict(params.get("global_mean_stress", params.get("global_solver", {})))
+        H, W = data.shape[:2]
+
+        if initial_stress_map is None:
+            raise ValueError(
+                "global_mean_stress solver requires seeding to be enabled "
+                "(params['seeding']['enabled']=true)."
+            )
+
+        boundary_mask = None
+        mask_file = ms_params.pop("boundary_mask_file", None)
+        if mask_file is not None:
+            if not os.path.exists(mask_file):
+                raise ValueError(f"Boundary mask file not found: {mask_file}")
+            boundary_mask = _load_array(mask_file) > 0
+            if boundary_mask.shape != (H, W):
+                raise ValueError(f"Boundary mask shape must be {(H, W)}, got {boundary_mask.shape}")
+
+        boundary_values = None
+        boundary_value_files = ms_params.pop("boundary_values_files", None)
+        if boundary_value_files is not None:
+            boundary_values = {}
+            for key in ("xx", "yy", "xy"):
+                if key not in boundary_value_files:
+                    continue
+                value_file = boundary_value_files[key]
+                if value_file is None:
+                    continue
+                if not os.path.exists(value_file):
+                    raise ValueError(f"Boundary values file for '{key}' not found: {value_file}")
+                boundary_values[key] = _load_array(value_file).astype(float)
+                if boundary_values[key].shape != (H, W):
+                    raise ValueError(
+                        f"Boundary values '{key}' shape must be {(H, W)}, got {boundary_values[key].shape}"
+                    )
+            if len(boundary_values) == 0:
+                boundary_values = None
+
+        external_potential = None
+        potential_file = ms_params.pop("external_potential_file", None)
+        potential_gradient = ms_params.pop("external_potential_gradient", None)
+        if potential_file is not None and potential_gradient is not None:
+            raise ValueError("Use either external_potential_file or external_potential_gradient, not both.")
+        if potential_file is not None:
+            if not os.path.exists(potential_file):
+                raise ValueError(f"External potential file not found: {potential_file}")
+            external_potential = _load_array(potential_file).astype(float)
+            if external_potential.shape != (H, W):
+                raise ValueError(f"External potential shape must be {(H, W)}, got {external_potential.shape}")
+        elif potential_gradient is not None:
+            grad = np.asarray(potential_gradient, dtype=float)
+            if grad.shape != (2,):
+                raise ValueError(
+                    f"external_potential_gradient must be [dVdx, dVdy], got {potential_gradient}"
+                )
+            y_idx, x_idx = np.indices((H, W), dtype=float)
+            external_potential = grad[0] * x_idx + grad[1] * y_idx
+
+        if "regularization_weight" in ms_params and "regularisation_weight" not in ms_params:
+            ms_params["regularisation_weight"] = ms_params.pop("regularization_weight")
+
+        initial_diff, initial_theta = (
+            photoelastimetry.optimiser.equilibrium_mean_stress.stress_to_principal_invariants(
+                initial_stress_map
+            )
+        )
+
+        bspline_wrapper, coeffs = photoelastimetry.optimiser.equilibrium_mean_stress.recover_mean_stress(
+            initial_diff,
+            initial_theta,
+            boundary_mask=boundary_mask,
+            boundary_values=boundary_values,
+            external_potential=external_potential,
+            initial_stress_map=initial_stress_map,
+            **ms_params,
+        )
+
+        s_xx, s_yy, s_xy = bspline_wrapper.get_stress_fields(coeffs)
+        if external_potential is not None:
+            s_xx = s_xx + external_potential
+            s_yy = s_yy + external_potential
+        stress_map = np.stack([s_xx, s_yy, s_xy], axis=-1)
     else:
-        raise ValueError("Solver type not recognized. Use 'stokes', 'intensity', or 'global'.")
+        raise ValueError(
+            "Solver type not recognized. Use 'stokes', 'intensity', 'global', or 'global_mean_stress'."
+        )
 
     if params.get("output_filename") is not None:
         output_filename = params["output_filename"]
@@ -203,48 +356,93 @@ def stress_to_image(params):
         - Isoclinic angle represents the orientation of principal stresses
     """
 
-    with open(params["p_filename"]) as f:
-        dict, p = photoelastimetry.io.load_file(f)
+    fallback_params = {}
+    if "p_filename" in params:
+        if not os.path.exists(params["p_filename"]):
+            raise ValueError(f"Parameter file not found: {params['p_filename']}")
+        with open(params["p_filename"], "r") as f:
+            fallback_params = json5.load(f)
 
-    sigma = photoelastimetry.io.load_image(params["stress_filename"], dict)
+    def get_param(name, default=None, aliases=()):
+        names = (name,) + tuple(aliases)
+        for key in names:
+            if key in params:
+                return params[key]
+        for key in names:
+            if key in fallback_params:
+                return fallback_params[key]
+        return default
 
-    sigma_xx = sigma[:, :, 2]
-    sigma_xy = sigma[:, :, 0]
-    sigma_yy = sigma[:, :, 1]
+    stress_filename = get_param("stress_filename", aliases=("s_filename",))
+    if stress_filename is None:
+        raise ValueError("Missing stress map path. Provide 'stress_filename' (or legacy 's_filename').")
 
-    if params["scattering"]:
-        # Add scattering
-        sigma_xx = gaussian_filter(sigma_xx, sigma=params["scattering"])
-        sigma_xy = gaussian_filter(sigma_xy, sigma=params["scattering"])
-        sigma_yy = gaussian_filter(sigma_yy, sigma=params["scattering"])
+    stress_map, _ = photoelastimetry.io.load_image(stress_filename)
+    stress_order = get_param("stress_order", default="xx_yy_xy")
+    sigma_xx, sigma_yy, sigma_xy = _get_stress_components(stress_map, stress_order)
 
-    # Compute principal stresses
-    sigma_avg = (sigma_xx + sigma_yy) / 2
-    R = np.sqrt(((sigma_xx - sigma_yy) / 2) ** 2 + sigma_xy**2)
-    sigma_1 = sigma_avg + R
-    sigma_2 = sigma_avg - R
+    scattering = float(get_param("scattering", default=0.0))
+    if scattering > 0:
+        sigma_xx = gaussian_filter(sigma_xx, sigma=scattering)
+        sigma_xy = gaussian_filter(sigma_xy, sigma=scattering)
+        sigma_yy = gaussian_filter(sigma_yy, sigma=scattering)
 
-    # Stress difference and retardation
-    delta_sigma = sigma_1 - sigma_2
+    wavelengths_cfg = get_param("wavelengths", aliases=("lambda_light",))
+    if wavelengths_cfg is None:
+        raise ValueError("Missing wavelengths. Provide 'wavelengths' or 'lambda_light'.")
+    wavelengths = _normalise_wavelengths(wavelengths_cfg)
 
-    # Retardation
-    delta = (2 * np.pi * params["t"] / params["lambda_light"]) * params["C"] * delta_sigma
+    C_cfg = get_param("C")
+    if C_cfg is None:
+        raise ValueError("Missing stress-optic coefficient 'C'.")
+    C_values = np.asarray(C_cfg, dtype=float)
+    if C_values.ndim == 0:
+        C_values = np.full(wavelengths.shape, float(C_values))
+    elif C_values.size == 1 and wavelengths.size > 1:
+        C_values = np.full(wavelengths.shape, float(C_values.item()))
+    elif C_values.size != wavelengths.size:
+        raise ValueError(f"C must be scalar or length {wavelengths.size}, got length {C_values.size}.")
 
-    # Fringe order
-    # N = delta / (2 * np.pi)
+    thickness = get_param("thickness", aliases=("t",))
+    if thickness is None:
+        raise ValueError("Missing sample thickness. Provide 'thickness' or legacy key 't'.")
+    thickness = float(thickness)
 
-    # Visualize Isochromatic Fringe Pattern
-    fringe_intensity = np.sin(delta / 2) ** 2  # Fringe pattern
+    nu = float(get_param("nu", default=1.0))
+    S_i_hat = np.asarray(get_param("S_i_hat", default=[1.0, 0.0, 0.0]), dtype=float)
+    if len(S_i_hat) == 2:
+        S_i_hat = np.append(S_i_hat, 0.0)
+    elif len(S_i_hat) != 3:
+        raise ValueError(f"S_i_hat must have length 2 or 3, got {len(S_i_hat)}.")
 
-    # Isoclinic angle (principal stress orientation)
-    phi = 0.5 * np.arctan2(2 * sigma_xy, sigma_xx - sigma_yy)  # Angle in radians
+    H, W = sigma_xx.shape
+    synthetic_images = np.zeros((H, W, len(wavelengths), 4), dtype=np.float32)
+    for i, (wl, C_val) in enumerate(zip(wavelengths, C_values)):
+        I0, I45, I90, I135 = simulate_four_step_polarimetry(
+            sigma_xx, sigma_yy, sigma_xy, C_val, nu, thickness, wl, S_i_hat
+        )
+        synthetic_images[:, :, i, 0] = I0
+        synthetic_images[:, :, i, 1] = I45
+        synthetic_images[:, :, i, 2] = I90
+        synthetic_images[:, :, i, 3] = I135
 
-    # Plot the results
-    if "output_filename" in params:
-        output_filename = params["output_filename"]
+    output_filename = get_param("output_filename", default="output.png")
+    ext = os.path.splitext(output_filename)[1].lower()
+
+    if ext in {".tiff", ".tif", ".npy", ".raw"}:
+        photoelastimetry.io.save_image(output_filename, synthetic_images)
+    elif ext in {".png", ".jpg", ".jpeg"}:
+        delta = compute_retardance(sigma_xx, sigma_yy, sigma_xy, C_values[0], nu, thickness, wavelengths[0])
+        fringe_intensity = np.sin(delta / 2) ** 2
+        phi = 0.5 * np.arctan2(2 * sigma_xy, sigma_xx - sigma_yy)
+        photoelastimetry.plotting.plot_fringe_pattern(fringe_intensity, phi, filename=output_filename)
     else:
-        output_filename = "output.png"
-    photoelastimetry.plotting.plot_fringe_pattern(fringe_intensity, phi, filename=output_filename)
+        raise ValueError(
+            f"Unsupported output extension '{ext}' for stress_to_image. "
+            "Use .tiff/.tif/.npy/.raw for stacks or .png/.jpg/.jpeg for a plot."
+        )
+
+    return synthetic_images
 
 
 def cli_image_to_stress():

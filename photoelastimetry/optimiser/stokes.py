@@ -47,7 +47,7 @@ def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):
     Returns
     -------
     S_p_hat : ndarray
-        Predicted normalised Stokes components [S1_hat, S2_hat].
+        Predicted normalised Stokes components [S1_hat, S2_hat, S3_hat].
     """
     theta = compute_principal_angle(sigma_xx, sigma_yy, sigma_xy)
     delta = compute_retardance(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength)
@@ -56,14 +56,11 @@ def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):
 
     # Extend S_i_hat to full Stokes vector
     S_i_hat = np.asarray(S_i_hat)
-    if len(S_i_hat) == 2:
-        # Backward compatibility: assume S3 = 0 (no circular polarisation)
-        S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
-    elif len(S_i_hat) == 3:
+    if len(S_i_hat) == 3:
         # Use provided circular component
         S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
     else:
-        raise ValueError(f"S_i_hat must have 2 or 3 elements, got {len(S_i_hat)}")
+        raise ValueError(f"S_i_hat must have 3 elements, got {len(S_i_hat)}")
 
     # Apply Mueller matrix
     S_m = M @ S_i_full

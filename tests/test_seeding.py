@@ -13,7 +13,7 @@ WAVELENGTHS = np.array([650e-9, 550e-9, 450e-9])
 C_VALUES = np.array([2e-12, 2e-12, 2e-12])
 NU = 1.0
 L = 0.01
-S_I_HAT = np.array([1.0, 0.0])
+S_I_HAT = np.array([1.0, 0.0, 0.0])  # Linearly polarised light at 0 degrees
 
 
 def test_invert_wrapped_retardance():
@@ -25,27 +25,13 @@ def test_invert_wrapped_retardance():
     s_yy = sigma_diff / 2 * (1 - np.cos(2 * theta_true))
     s_xy = sigma_diff / 2 * np.sin(2 * theta_true)
 
-    # Predict Stokes
-    # We need to broadcast wavelengths to (3,)
-    # predict_stokes returns (S1, S2) for scalar wavelength?
-    # Or (N, 2) for array wavelength?
-    # Let's check predict_stokes signature. It takes scalar or array wavelength.
-    # If we pass array, it returns array.
-
-    S_m_hat = predict_stokes(s_xx, s_yy, s_xy, C_VALUES, NU, L, WAVELENGTHS, S_I_HAT)
-    S_m_hat = S_m_hat.T  # predict_stokes usually returns [2, N] or similar?
-    # Actually predict_stokes in stokes.py:
-    # returns S1_hat, S2_hat.
-    # If wavelength is array, return is likely broadcasted.
-    # Let's assume predict_stokes returns (N_wl, 2) or (2, N_wl).
-    # Checking stokes.py:
-    # delta = ...
-    # S1_hat = ...
-    # return np.array([S1_hat, S2_hat])
-    # So if delta is array, return is (2, N_wl).
-
-    if S_m_hat.shape[0] == 2:
-        S_m_hat = S_m_hat.T  # (N_wl, 2)
+    S_m_hat = np.stack(
+        [
+            predict_stokes(s_xx, s_yy, s_xy, C_VALUES[i], NU, L, WAVELENGTHS[i], S_I_HAT)
+            for i in range(len(WAVELENGTHS))
+        ],
+        axis=0,
+    )
 
     theta_rec, delta_wrap_rec = invert_wrapped_retardance(S_m_hat, S_I_HAT)
 
@@ -58,7 +44,6 @@ def test_invert_wrapped_retardance():
 def test_resolve_fringe_orders():
     # Test multi-fringe resolution
     sigma_diff = 4e6  # 4 MPa -> should be > 1 fringe for some wavelengths
-    theta_true = 0.0
 
     # Calculate true deltas
     deltas = (2 * np.pi * C_VALUES * NU * L / WAVELENGTHS) * sigma_diff

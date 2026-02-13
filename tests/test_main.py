@@ -182,102 +182,163 @@ class TestImageToStress:
             stress_map = main.image_to_stress(params)
             assert stress_map.shape == (2, 2, 3), "Stress map should be computed"
 
+    @patch("photoelastimetry.main.photoelastimetry.optimiser.equilibrium_mean_stress.recover_mean_stress")
+    @patch("photoelastimetry.main.photoelastimetry.seeding.phase_decomposed_seeding")
+    def test_image_to_stress_global_mean_stress_solver(self, mock_seeding, mock_recover_mean_stress):
+        """Test image_to_stress with the global_mean_stress solver path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(2, 3, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+
+            mock_seeding.return_value = np.ones((2, 3, 3), dtype=float)
+
+            s_xx = np.full((2, 3), 1.0)
+            s_yy = np.full((2, 3), 2.0)
+            s_xy = np.full((2, 3), 0.5)
+            fake_wrapper = MagicMock()
+            fake_wrapper.get_stress_fields.return_value = (s_xx, s_yy, s_xy)
+            mock_recover_mean_stress.return_value = (fake_wrapper, np.zeros(1))
+
+            params = {
+                "input_filename": input_file,
+                "C": [3e-9, 3e-9, 3e-9],
+                "thickness": 0.01,
+                "wavelengths": [650, 550, 450],
+                "S_i_hat": [1.0, 0.0, 0.0],
+                "debug": False,
+                "solver": "global_mean_stress",
+                "global_mean_stress": {"max_iterations": 1, "verbose": False},
+            }
+
+            stress_map = main.image_to_stress(params)
+
+            assert stress_map.shape == (2, 3, 3), "Stress map should have shape [H, W, 3]"
+            assert np.allclose(stress_map[:, :, 0], s_xx)
+            assert np.allclose(stress_map[:, :, 1], s_yy)
+            assert np.allclose(stress_map[:, :, 2], s_xy)
+            mock_recover_mean_stress.assert_called_once()
+
+    @patch("photoelastimetry.main.photoelastimetry.optimiser.equilibrium_mean_stress.recover_mean_stress")
+    @patch("photoelastimetry.main.photoelastimetry.seeding.phase_decomposed_seeding")
+    def test_image_to_stress_default_solver_is_global_mean_stress(
+        self, mock_seeding, mock_recover_mean_stress
+    ):
+        """If solver is omitted, image_to_stress should default to global_mean_stress."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(2, 3, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+
+            mock_seeding.return_value = np.ones((2, 3, 3), dtype=float)
+            fake_wrapper = MagicMock()
+            fake_wrapper.get_stress_fields.return_value = (
+                np.zeros((2, 3)),
+                np.zeros((2, 3)),
+                np.zeros((2, 3)),
+            )
+            mock_recover_mean_stress.return_value = (fake_wrapper, np.zeros(1))
+
+            params = {
+                "input_filename": input_file,
+                "C": [3e-9, 3e-9, 3e-9],
+                "thickness": 0.01,
+                "wavelengths": [650, 550, 450],
+                "S_i_hat": [1.0, 0.0, 0.0],
+                "debug": False,
+                # solver intentionally omitted
+                "global_mean_stress": {"max_iterations": 1, "verbose": False},
+            }
+
+            stress_map = main.image_to_stress(params)
+            assert stress_map.shape == (2, 3, 3)
+            mock_recover_mean_stress.assert_called_once()
+
 
 class TestStressToImage:
     """Tests for stress_to_image function."""
 
-    @pytest.mark.skip(reason="stress_to_image calls non-existent io.load_file function")
-    def test_stress_to_image_basic(self):
-        """Test basic stress_to_image functionality."""
+    def test_stress_to_image_saves_stack_tiff(self):
+        """stress_to_image should generate and save a full [H, W, C, A] synthetic stack."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create synthetic stress field (H, W, 3) for [sigma_xy, sigma_yy, sigma_xx]
-            stress_data = np.random.rand(1, 2, 3).astype(np.float32) * 1e6
+            stress_data = np.random.rand(4, 5, 3).astype(np.float32) * 1e6
             stress_file = os.path.join(tmpdir, "stress.npy")
             io.save_image(stress_file, stress_data)
-
-            # Create a minimal params file
-            params_file = os.path.join(tmpdir, "params.json5")
-            with open(params_file, "w") as f:
-                json5.dump({"dummy": "value"}, f)
-
-            output_file = os.path.join(tmpdir, "fringe.png")
+            output_file = os.path.join(tmpdir, "synthetic_stack.tiff")
 
             params = {
-                "p_filename": params_file,
                 "stress_filename": stress_file,
-                "scattering": 0,  # No scattering
-                "t": 0.01,
-                "lambda_light": 650e-9,
-                "C": 3e-9,
+                "thickness": 0.01,
+                "wavelengths": [650, 550, 450],
+                "C": [3e-9, 3.5e-9, 2.5e-9],
+                "S_i_hat": [1.0, 0.0, 0.0],
                 "output_filename": output_file,
-                "solver": "intensity",
+                "scattering": 0,
             }
 
-            # Mock the load_file and plotting functions
-            with patch("photoelastimetry.main.open", create=True):
-                with patch("photoelastimetry.plotting.plot_fringe_pattern") as mock_plot:
-                    main.stress_to_image(params)
-                    mock_plot.assert_called_once()
+            synthetic = main.stress_to_image(params)
+            assert synthetic.shape == (4, 5, 3, 4)
+            assert os.path.exists(output_file)
 
-    @pytest.mark.skip(reason="stress_to_image calls non-existent io.load_file function")
-    def test_stress_to_image_with_scattering(self):
-        """Test stress_to_image with Gaussian scattering."""
+            loaded, _ = io.load_image(output_file)
+            assert loaded.shape == (4, 5, 3, 4)
+
+    def test_stress_to_image_with_legacy_stress_order(self):
+        """Legacy [xy, yy, xx] ordering should still be supported."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            stress_data = np.random.rand(5, 5, 3).astype(np.float32) * 1e6
-            stress_file = os.path.join(tmpdir, "stress.npy")
-            io.save_image(stress_file, stress_data)
+            stress_xx_yy_xy = np.random.rand(3, 4, 3).astype(np.float32) * 1e6
+            stress_xy_yy_xx = np.stack(
+                [stress_xx_yy_xy[:, :, 2], stress_xx_yy_xy[:, :, 1], stress_xx_yy_xy[:, :, 0]],
+                axis=-1,
+            )
 
-            params_file = os.path.join(tmpdir, "params.json5")
-            with open(params_file, "w") as f:
-                json5.dump({"dummy": "value"}, f)
+            standard_file = os.path.join(tmpdir, "standard.npy")
+            legacy_file = os.path.join(tmpdir, "legacy.npy")
+            io.save_image(standard_file, stress_xx_yy_xy)
+            io.save_image(legacy_file, stress_xy_yy_xx)
 
-            output_file = os.path.join(tmpdir, "fringe.png")
-
-            params = {
-                "p_filename": params_file,
-                "stress_filename": stress_file,
-                "scattering": 2.0,  # Apply scattering
-                "t": 0.01,
+            params_standard = {
+                "stress_filename": standard_file,
+                "thickness": 0.01,
                 "lambda_light": 650e-9,
                 "C": 3e-9,
-                "output_filename": output_file,
-                "solver": "intensity",
+                "output_filename": os.path.join(tmpdir, "standard.tiff"),
+                "stress_order": "xx_yy_xy",
+            }
+            params_legacy = {
+                "stress_filename": legacy_file,
+                "thickness": 0.01,
+                "lambda_light": 650e-9,
+                "C": 3e-9,
+                "output_filename": os.path.join(tmpdir, "legacy.tiff"),
+                "stress_order": "xy_yy_xx",
             }
 
-            with patch("photoelastimetry.main.open", create=True):
-                with patch("photoelastimetry.plotting.plot_fringe_pattern") as mock_plot:
-                    main.stress_to_image(params)
-                    mock_plot.assert_called_once()
+            synthetic_standard = main.stress_to_image(params_standard)
+            synthetic_legacy = main.stress_to_image(params_legacy)
+            assert np.allclose(synthetic_standard, synthetic_legacy, atol=1e-10, rtol=1e-6)
 
-    @pytest.mark.skip(reason="stress_to_image calls non-existent io.load_file function")
     def test_stress_to_image_default_output(self):
-        """Test stress_to_image with default output filename."""
+        """Default output filename should remain output.png for plot output."""
         with tempfile.TemporaryDirectory() as tmpdir:
             stress_data = np.random.rand(5, 5, 3).astype(np.float32) * 1e6
             stress_file = os.path.join(tmpdir, "stress.npy")
             io.save_image(stress_file, stress_data)
 
-            params_file = os.path.join(tmpdir, "params.json5")
-            with open(params_file, "w") as f:
-                json5.dump({"dummy": "value"}, f)
-
             params = {
-                "p_filename": params_file,
                 "stress_filename": stress_file,
                 "scattering": 0,
-                "t": 0.01,
+                "thickness": 0.01,
                 "lambda_light": 650e-9,
                 "C": 3e-9,
-                "solver": "intensity",
-                # No output_filename - should default to "output.png"
+                # No output_filename -> should default to output.png
             }
 
-            with patch("photoelastimetry.main.open", create=True):
-                with patch("photoelastimetry.plotting.plot_fringe_pattern") as mock_plot:
-                    main.stress_to_image(params)
-                    # Check that default filename was used
-                    call_args = mock_plot.call_args
-                    assert call_args[1]["filename"] == "output.png"
+            with patch("photoelastimetry.plotting.plot_fringe_pattern") as mock_plot:
+                synthetic = main.stress_to_image(params)
+                assert synthetic.shape == (5, 5, 1, 4)
+                mock_plot.assert_called_once()
+                assert mock_plot.call_args[1]["filename"] == "output.png"
 
 
 class TestDemosaicRawImage:
