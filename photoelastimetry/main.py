@@ -5,6 +5,7 @@ import json5
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
+import photoelastimetry.calibrate
 import photoelastimetry.io
 import photoelastimetry.optimise
 import photoelastimetry.plotting
@@ -26,6 +27,32 @@ def _load_array(path):
     """Load an array from an image path via io.load_image."""
     data, _ = photoelastimetry.io.load_image(path)
     return data
+
+
+def _merge_params_with_calibration(params, fallback_params=None):
+    """
+    Merge params with optional fallback and calibration profile values.
+
+    Precedence order is:
+    1) explicit params
+    2) fallback params
+    3) calibration profile for C/S_i_hat/wavelengths
+    """
+    merged = {}
+    if fallback_params:
+        merged.update(fallback_params)
+    merged.update(params)
+
+    calibration_file = merged.get("calibration_file")
+    if calibration_file is None:
+        return merged
+
+    profile = photoelastimetry.calibrate.load_calibration_profile(calibration_file)
+    for key in ("C", "S_i_hat", "wavelengths"):
+        if key not in merged and key in profile:
+            merged[key] = profile[key]
+    merged["_calibration_profile"] = profile
+    return merged
 
 
 def _get_stress_components(stress_map, stress_order):
@@ -85,12 +112,18 @@ def image_to_stress(params, output_filename=None):
         - Wavelengths are automatically converted from nm to meters
     """
 
+    params = _merge_params_with_calibration(params)
+
     if "folderName" in params:
         data, metadata = photoelastimetry.io.load_raw(params["folderName"])
     elif "input_filename" in params:
         data, metadata = photoelastimetry.io.load_image(params["input_filename"])
     else:
         raise ValueError("Either 'folderName' or 'input_filename' must be specified in params.")
+
+    profile = params.get("_calibration_profile")
+    if profile is not None:
+        data = photoelastimetry.calibrate.apply_blank_correction(data, profile["blank_correction"])
 
     if params.get("crop") is not None:
         data = data[
@@ -116,6 +149,15 @@ def image_to_stress(params, output_filename=None):
 
     if params["debug"]:
         photoelastimetry.plotting.show_all_channels(data, metadata)
+
+    if "C" not in params:
+        raise ValueError("Missing stress-optic coefficient 'C'. Provide it directly or via calibration_file.")
+    if "thickness" not in params:
+        raise ValueError("Missing sample thickness 'thickness'.")
+    if "wavelengths" not in params:
+        raise ValueError("Missing wavelengths. Provide them directly or via calibration_file.")
+    if "S_i_hat" not in params:
+        raise ValueError("Missing S_i_hat. Provide it directly or via calibration_file.")
 
     C = params["C"]  # Stress-optic coefficients in 1/Pa
     L = params["thickness"]  # Thickness in m
@@ -299,14 +341,13 @@ def stress_to_image(params):
         with open(params["p_filename"], "r") as f:
             fallback_params = json5.load(f)
 
+    merged_params = _merge_params_with_calibration(params, fallback_params=fallback_params)
+
     def get_param(name, default=None, aliases=()):
         names = (name,) + tuple(aliases)
         for key in names:
-            if key in params:
-                return params[key]
-        for key in names:
-            if key in fallback_params:
-                return fallback_params[key]
+            if key in merged_params:
+                return merged_params[key]
         return default
 
     stress_filename = get_param("stress_filename", aliases=("s_filename",))
@@ -415,6 +456,27 @@ def cli_stress_to_image():
 
     params = json5.load(open(args.json_filename, "r"))
     stress_to_image(params)
+
+
+def cli_calibrate():
+    """Command line interface for calibration workflow."""
+    parser = argparse.ArgumentParser(
+        description="Calibrate photoelastimetry parameters from known-load data."
+    )
+    parser.add_argument(
+        "json_filename",
+        type=str,
+        help="Path to the calibration JSON5 parameter file.",
+    )
+    args = parser.parse_args()
+
+    with open(args.json_filename, "r") as f:
+        params = json5.load(f)
+
+    result = photoelastimetry.calibrate.run_calibration(params)
+    print(f"Wrote calibration profile: {result['profile_file']}")
+    print(f"Wrote calibration report: {result['report_file']}")
+    print(f"Wrote calibration diagnostics: {result['diagnostics_file']}")
 
 
 def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="tiff"):

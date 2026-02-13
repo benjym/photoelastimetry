@@ -89,6 +89,57 @@ EOF_JSON
 stress-to-image forward_params.json5
 ```
 
+## Example 5: Calibrate on a Brazilian Disk Load Sweep
+
+Use measured calibration frames to fit `C`, `S_i_hat`, and blank correction:
+
+```bash
+cat > calibration_params.json5 << EOF_JSON
+{
+  "method": "brazilian_disk",
+  "wavelengths": [650, 550, 450],
+  "thickness": 0.01,
+  "geometry": {
+    "radius_m": 0.01,
+    "center_px": [256, 256],
+    "pixels_per_meter": 20000,
+    "edge_margin_fraction": 0.9,
+    "contact_exclusion_fraction": 0.12
+  },
+  "dark_frame_file": "calibration/dark.npy",
+  "blank_frame_file": "calibration/blank.npy",
+  "load_steps": [
+    {"load": 0.0, "image_file": "calibration/load_000.npy"},
+    {"load": 150.0, "image_file": "calibration/load_150.npy"},
+    {"load": 300.0, "image_file": "calibration/load_300.npy"},
+    {"load": 450.0, "image_file": "calibration/load_450.npy"}
+  ],
+  "output_profile": "calibration/profile.json5",
+  "output_report": "calibration/report.md",
+  "output_diagnostics": "calibration/diagnostics.npz"
+}
+EOF_JSON
+
+calibrate-photoelastimetry calibration_params.json5
+```
+
+Then use the profile during inversion:
+
+```bash
+image-to-stress params.json5 --output stress_field.tiff
+```
+
+Where `params.json5` includes:
+
+```json
+{
+  "input_filename": "experiment/demosaiced.tiff",
+  "thickness": 0.01,
+  "calibration_file": "calibration/profile.json5",
+  "debug": false
+}
+```
+
 ## Additional Resources
 
 - See the [API Reference](reference/index.md) for detailed function documentation

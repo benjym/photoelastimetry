@@ -41,6 +41,7 @@ docs = [
 image-to-stress = "photoelastimetry.main:cli_image_to_stress"
 stress-to-image = "photoelastimetry.main:cli_stress_to_image"
 demosaic-raw = "photoelastimetry.main:cli_demosaic"
+calibrate-photoelastimetry = "photoelastimetry.main:cli_calibrate"
 
 [build-system]
 requires = ["setuptools", "wheel"]

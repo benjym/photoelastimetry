@@ -34,6 +34,7 @@ The JSON5 parameter file should contain:
 - `thickness`: Sample thickness in meters
 - `wavelengths`: List of wavelengths in nanometers
 - `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
+- `calibration_file` (optional): Path to calibration profile JSON5. If provided, missing `C`, `S_i_hat`, and `wavelengths` are loaded automatically, and blank correction is applied before inversion.
 - `crop` (optional): Crop region as [y1, y2, x1, x2]
 - `debug` (optional): If true, display all channels for debugging
 - `seeding` (optional): Controls phase-decomposed seeding (`enabled`, `n_max`, `sigma_max`)
@@ -80,11 +81,42 @@ The JSON5 parameter file should contain:
 - `wavelengths` (nm or m) or legacy `lambda_light`: Illumination wavelengths
 - `C`: Stress-optic coefficient(s), scalar or one per wavelength
 - `S_i_hat` (optional): Incoming normalised Stokes vector `[S1_hat, S2_hat, S3_hat]`
+- `calibration_file` (optional): Path to calibration profile JSON5. If provided, missing `C`, `S_i_hat`, and `wavelengths` are loaded automatically.
 - `stress_order` (optional): `xx_yy_xy` (default) or legacy `xy_yy_xx`
 - `scattering` (optional): Gaussian filter sigma for scattering simulation
 - `output_filename` (optional):
   - `.tiff/.tif/.npy/.raw`: saves full synthetic stack `[H, W, n_wavelengths, 4]`
   - `.png/.jpg/.jpeg`: saves a 2-panel fringe/isoclinic plot (default: `output.png`)
+
+### calibrate-photoelastimetry
+
+Calibrates `C`, `S_i_hat`, and blank correction from known-load Brazilian-disk data.
+
+```bash
+calibrate-photoelastimetry <json_filename>
+```
+
+Required calibration config fields:
+
+- `method`: `brazilian_disk`
+- `wavelengths`
+- `thickness`
+- `geometry`: `radius_m`, `center_px`, `pixels_per_meter`
+- `load_steps`: list of `{image_file, load}` with at least one no-load and three loaded steps
+
+Optional calibration config fields:
+
+- `dark_frame_file` + `blank_frame_file`
+- `geometry.edge_margin_fraction`, `geometry.contact_exclusion_fraction`
+- `fit.max_points`, `fit.seed`, `fit.loss`, `fit.f_scale`, `fit.max_nfev`, `fit.initial_C`, `fit.initial_S_i_hat`
+- `output_profile`, `output_report`, `output_diagnostics`
+
+Generated profile includes:
+
+- `version`, `method`, `wavelengths`, `C`, `S_i_hat`
+- `blank_correction`
+- `fit_metrics`
+- `provenance`
 
 ### demosaic-raw
 

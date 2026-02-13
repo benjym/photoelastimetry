@@ -7,6 +7,7 @@ This section provides detailed documentation for all modules, classes, and funct
 - [image](image.md) - Image processing and Mueller matrix operations
 - [io](io.md) - Input/output operations for images and data
 - [main](main.md) - Command-line interface entry points
+- [calibrate](calibrate.md) - Brazilian-disk calibration pipeline
 - [plotting](plotting.md) - Visualization utilities and colormaps
 
 ## Solver Module

@@ -310,6 +310,89 @@ class TestImageToStress:
             assert np.allclose(stress_map[:, :, 1], 2.0 + expected)
             assert np.allclose(stress_map[:, :, 2], 0.5)
 
+    def test_image_to_stress_uses_calibration_file_for_c_si_hat_and_blank_correction(
+        self, _mock_optimise_pipeline
+    ):
+        mock_seeding, _mock_recover = _mock_optimise_pipeline
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.full((3, 3, 3, 4), 1.0, dtype=np.float32)
+            input_file = os.path.join(tmpdir, "input.tiff")
+            io.save_image(input_file, data)
+
+            calibration_file = os.path.join(tmpdir, "calibration.json5")
+            profile = {
+                "version": 1,
+                "method": "brazilian_disk",
+                "wavelengths": [650e-9, 550e-9, 450e-9],
+                "C": [9e-9, 8e-9, 7e-9],
+                "S_i_hat": [0.2, 0.1, 0.95],
+                "blank_correction": {
+                    "offset": [[0.1, 0.1, 0.1, 0.1], [0.1, 0.1, 0.1, 0.1], [0.1, 0.1, 0.1, 0.1]],
+                    "scale": [[2.0, 2.0, 2.0, 2.0], [2.0, 2.0, 2.0, 2.0], [2.0, 2.0, 2.0, 2.0]],
+                    "mode": "dark_blank_scalar",
+                },
+                "fit_metrics": {},
+                "provenance": {},
+            }
+            with open(calibration_file, "w") as f:
+                json5.dump(profile, f)
+
+            params = {
+                "input_filename": input_file,
+                "thickness": 0.01,
+                "debug": False,
+                "calibration_file": calibration_file,
+            }
+
+            main.image_to_stress(params)
+
+            call = mock_seeding.call_args
+            corrected_data = call.args[0]
+            c_values = call.args[2]
+            s_i_hat = call.kwargs["S_i_hat"]
+
+            assert np.allclose(corrected_data, 1.8)  # (1.0 - 0.1) * 2.0
+            assert np.allclose(c_values, profile["C"])
+            assert np.allclose(s_i_hat, profile["S_i_hat"])
+
+    def test_image_to_stress_explicit_params_override_calibration_profile(self, _mock_optimise_pipeline):
+        mock_seeding, _mock_recover = _mock_optimise_pipeline
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(3, 3, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "input.tiff")
+            io.save_image(input_file, data)
+
+            calibration_file = os.path.join(tmpdir, "calibration.json5")
+            with open(calibration_file, "w") as f:
+                json5.dump(
+                    {
+                        "version": 1,
+                        "method": "brazilian_disk",
+                        "wavelengths": [650e-9, 550e-9, 450e-9],
+                        "C": [9e-9, 8e-9, 7e-9],
+                        "S_i_hat": [0.2, 0.1, 0.95],
+                        "blank_correction": {
+                            "offset": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+                            "scale": [[1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0]],
+                            "mode": "identity",
+                        },
+                        "fit_metrics": {},
+                        "provenance": {},
+                    },
+                    f,
+                )
+
+            params = self._base_params(input_file)
+            params["C"] = [1e-9, 2e-9, 3e-9]
+            params["S_i_hat"] = [1.0, 0.0, 0.0]
+            params["calibration_file"] = calibration_file
+
+            main.image_to_stress(params)
+            call = mock_seeding.call_args
+
+            assert np.allclose(call.args[2], [1e-9, 2e-9, 3e-9])
+            assert np.allclose(call.kwargs["S_i_hat"], [1.0, 0.0, 0.0])
+
 
 class TestStressToImage:
     """Tests for stress_to_image function."""
@@ -480,6 +563,86 @@ class TestStressToImage:
             assert synthetic.shape == (3, 3, 3, 4)
             assert os.path.exists(output_file)
 
+    def test_stress_to_image_uses_calibration_file_for_missing_c_and_s_i_hat(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stress = np.random.rand(3, 3, 3).astype(np.float32)
+            stress_file = os.path.join(tmpdir, "stress.npy")
+            io.save_image(stress_file, stress)
+
+            calibration_file = os.path.join(tmpdir, "calibration.json5")
+            with open(calibration_file, "w") as f:
+                json5.dump(
+                    {
+                        "version": 1,
+                        "method": "brazilian_disk",
+                        "wavelengths": [650e-9, 550e-9, 450e-9],
+                        "C": [3e-9, 3e-9, 3e-9],
+                        "S_i_hat": [0.9, 0.1, 0.0],
+                        "blank_correction": {
+                            "offset": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+                            "scale": [[1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0]],
+                            "mode": "identity",
+                        },
+                        "fit_metrics": {},
+                        "provenance": {},
+                    },
+                    f,
+                )
+
+            params = {
+                "stress_filename": stress_file,
+                "thickness": 0.01,
+                "calibration_file": calibration_file,
+                "output_filename": os.path.join(tmpdir, "synthetic.tiff"),
+            }
+            synthetic = main.stress_to_image(params)
+            assert synthetic.shape == (3, 3, 3, 4)
+
+    def test_stress_to_image_explicit_params_override_calibration_profile(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stress = np.random.rand(2, 2, 3).astype(np.float32)
+            stress_file = os.path.join(tmpdir, "stress.npy")
+            io.save_image(stress_file, stress)
+
+            calibration_file = os.path.join(tmpdir, "calibration.json5")
+            with open(calibration_file, "w") as f:
+                json5.dump(
+                    {
+                        "version": 1,
+                        "method": "brazilian_disk",
+                        "wavelengths": [650e-9],
+                        "C": [3e-9],
+                        "S_i_hat": [0.2, 0.3, 0.4],
+                        "blank_correction": {
+                            "offset": [[0.0, 0.0, 0.0, 0.0]],
+                            "scale": [[1.0, 1.0, 1.0, 1.0]],
+                            "mode": "identity",
+                        },
+                        "fit_metrics": {},
+                        "provenance": {},
+                    },
+                    f,
+                )
+
+            with patch("photoelastimetry.main.simulate_four_step_polarimetry") as mock_sim:
+                zeros = np.zeros((2, 2), dtype=float)
+                mock_sim.return_value = (zeros, zeros, zeros, zeros)
+
+                params = {
+                    "stress_filename": stress_file,
+                    "thickness": 0.01,
+                    "wavelengths": [650e-9],
+                    "C": [7e-9],
+                    "S_i_hat": [1.0, 0.0, 0.0],
+                    "calibration_file": calibration_file,
+                    "output_filename": os.path.join(tmpdir, "synthetic.tiff"),
+                }
+                main.stress_to_image(params)
+
+                sim_call = mock_sim.call_args
+                assert np.isclose(sim_call.args[3], 7e-9)
+                assert np.allclose(sim_call.args[7], [1.0, 0.0, 0.0])
+
 
 class TestDemosaicRawImage:
     """Tests for demosaic_raw_image function."""
@@ -594,6 +757,26 @@ class TestCLIFunctions:
         main.cli_stress_to_image()
 
         mock_stress_to_image.assert_called_once_with(mock_params)
+
+    @patch("photoelastimetry.main.photoelastimetry.calibrate.run_calibration")
+    @patch("builtins.open", create=True)
+    @patch("json5.load")
+    @patch("argparse.ArgumentParser.parse_args")
+    def test_cli_calibrate(self, mock_args, mock_json_load, mock_open, mock_run_calibration):
+        mock_args.return_value = MagicMock(json_filename="calibration.json5")
+        mock_params = {"method": "brazilian_disk"}
+        mock_json_load.return_value = mock_params
+        mock_run_calibration.return_value = {
+            "profile_file": "calibration_profile.json5",
+            "report_file": "calibration_report.md",
+            "diagnostics_file": "calibration_diagnostics.npz",
+        }
+
+        with patch("builtins.print") as mock_print:
+            main.cli_calibrate()
+
+        mock_run_calibration.assert_called_once_with(mock_params)
+        assert mock_print.call_count == 3
 
     @patch("photoelastimetry.main.demosaic_raw_image")
     @patch("argparse.ArgumentParser.parse_args")

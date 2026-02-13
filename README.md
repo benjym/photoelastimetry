@@ -22,7 +22,7 @@ Full documentation is available [here](https://benjym.github.io/photoelastimetry
 
 ## Usage
 
-After installation, two command line scripts are available:
+After installation, command line scripts are available:
 
 ### image-to-stress
 
@@ -50,6 +50,7 @@ The JSON5 parameter file should contain:
 - `thickness`: Sample thickness in meters
 - `wavelengths`: List of wavelengths in nanometers
 - `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
+- `calibration_file` (optional): Path to calibration profile JSON5. If provided, missing `C`, `S_i_hat`, and `wavelengths` are filled from the profile, and blank correction is applied to input stacks.
 - `crop` (optional): Crop region as [y1, y2, x1, x2]
 - `debug` (optional): If true, display all channels for debugging
 - `seeding` (optional): Controls phase-decomposed seeding (`enabled`, `n_max`, `sigma_max`)
@@ -83,6 +84,7 @@ The JSON5 parameter file should contain:
 - `wavelengths` (nm or m) or legacy `lambda_light`: Illumination wavelengths
 - `C`: Stress-optic coefficient(s), scalar or one per wavelength
 - `S_i_hat` (optional): Incoming normalised Stokes vector `[S1_hat, S2_hat, S3_hat]`
+- `calibration_file` (optional): Path to calibration profile JSON5. If provided, missing `C`, `S_i_hat`, and `wavelengths` are filled from the profile.
 - `stress_order` (optional): `xx_yy_xy` (default) or legacy `xy_yy_xx`
 - `scattering` (optional): Gaussian filter sigma for scattering simulation
 - `output_filename` (optional):
@@ -124,6 +126,39 @@ demosaic-raw images/ --format png --all
 
 - `tiff`: Creates a single TIFF file with shape [H/4, W/4, 4, 4] containing all colour channels (R, G1, G2, B) and polarisation angles (0°, 45°, 90°, 135°)
 - `png`: Creates 4 PNG files (one per polarisation angle), each containing all colour channels as a composite image
+
+### calibrate-photoelastimetry
+
+Calibrates stress-optic coefficients (`C`), incoming polarisation (`S_i_hat`), and blank correction from a Brazilian-disk multi-load sequence.
+
+```bash
+calibrate-photoelastimetry <json_filename>
+```
+
+**Arguments:**
+
+- `json_filename`: Path to a calibration JSON5 file (required)
+
+**Calibration JSON5 parameters:**
+
+- `method`: Must be `brazilian_disk` (default)
+- `wavelengths`: Illumination wavelengths (nm or m)
+- `thickness`: Sample thickness (m)
+- `geometry`: Disk geometry and registration
+  - `radius_m`: Disk radius in meters
+  - `center_px`: Disk center `[cx, cy]` in image pixels
+  - `pixels_per_meter`: Pixel scale
+  - `edge_margin_fraction` (optional, default `0.9`)
+  - `contact_exclusion_fraction` (optional, default `0.12`)
+- `load_steps`: List of calibration images with known loads
+  - Each step requires `image_file` and `load`
+  - Include at least one no-load step (`load` ≈ `0`) and at least three non-zero loads
+- `dark_frame_file` and `blank_frame_file` (optional, but provide both or neither)
+- `fit` (optional): `max_points`, `seed`, `loss`, `f_scale`, `max_nfev`, `initial_C`, `initial_S_i_hat`
+- `output_profile`, `output_report`, `output_diagnostics` (optional output paths)
+
+The generated calibration profile contains required fields:
+`version`, `method`, `wavelengths`, `C`, `S_i_hat`, `blank_correction`, `fit_metrics`, `provenance`.
 
 ## Development
 
