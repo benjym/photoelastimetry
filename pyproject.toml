@@ -1,6 +1,6 @@
 [project]
 name = "photoelastimetry"
-version = "0.42"
+version = "0.5.0"
 requires-python = ">=3.9"
 authors = [
   {name = "Benjy Marks", email = "benjy.marks@sydney.edu.au"},
@@ -8,7 +8,7 @@ authors = [
 description = "Package for processing polarised images to measure stress in granular media"
 readme = "README.md"
 license = "GPL-3.0-or-later"
-keywords = ["granular", "polarimetry","photoelasticity", "stress"]
+keywords = ["granular material", "polarimetry","photoelasticity", "stress"]
 dependencies = [
     "numpy",
     "matplotlib",
