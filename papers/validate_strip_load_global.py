@@ -96,6 +96,14 @@ b_xx = true_sxx.copy()
 b_yy = true_syy.copy()
 b_xy = true_txy.copy()
 
+# free on top surface
+b_yy[:, :] = np.nan
+b_xx[:, :] = np.nan
+b_xy[:, :] = np.nan
+# b_yy[1:-1, 0] = np.nan  # Left side (excluding corners)
+# b_yy[1:-1, -1] = np.nan  # Right side (excluding corners)
+# b_xx[:, :] = np.nan
+
 boundary_values = {
     "xx": b_xx,
     "yy": b_yy,
@@ -119,7 +127,7 @@ recovered_mean_stress = recover_mean_stress(
     knot_spacing=knot_spacing,
     spline_degree=3,
     boundary_mask=boundary_mask,
-    boundary_weight=1,
+    boundary_weight=1e6,
     regularisation_weight=0,
     external_potential=V_potential,
     boundary_values=boundary_values,

@@ -223,3 +223,71 @@ class BSplineAiry:
             options={"disp": False, "maxiter": 100},  # Quick fit
         )
         return res.x
+
+
+class BSplineScalar(BSplineAiry):
+    """
+    Manages a tensor-product B-spline surface for a scalar field (e.g. Pressure).
+
+    Inherits pre-computation from BSplineAiry.
+    Computes P, dP/dx, dP/dy.
+    """
+
+    def get_scalar_fields(self, coeffs_flat):
+        """
+        Compute scalar field and its gradients.
+
+        Parameters
+        ----------
+        coeffs_flat : array-like
+            Flattened array of coefficients.
+
+        Returns
+        -------
+        P, dP_dx, dP_dy : ndarray
+            Scalar field and gradients of shape (height, width).
+        """
+        C = coeffs_flat.reshape(self.n_coeffs_y, self.n_coeffs_x)
+
+        # P = By * C * Bx.T
+        P = self.By @ C @ self.Bx.T
+
+        # dP/dx = By * C * dBx.T
+        dP_dx = self.By @ C @ self.dBx.T
+
+        # dP/dy = dBy * C * Bx.T
+        # Note: image coords +y is down. If we need physical gradients, handled outside.
+        # But for consistency with get_stress_fields (which likely uses image gradients)
+        dP_dy = self.dBy @ C @ self.Bx.T
+
+        return P, dP_dx, dP_dy
+
+    def project_scalar_gradients(self, grad_P, grad_dP_dx, grad_dP_dy):
+        """
+        Project field gradients back to B-spline coefficients.
+
+        Parameters
+        ----------
+        grad_P : ndarray
+            dL/dP
+        grad_dP_dx : ndarray
+            dL/d(dP/dx)
+        grad_dP_dy : ndarray
+            dL/d(dP/dy)
+
+        Returns
+        -------
+        grad_coeffs : ndarray
+        """
+        # P = By @ C @ Bx.T
+        grad_C = self.By.T @ grad_P @ self.Bx
+
+        # dP_dx Contribution
+        if grad_dP_dx is not None:
+            grad_C += self.By.T @ grad_dP_dx @ self.dBx
+
+        # dP_dy Contribution
+        if grad_dP_dy is not None:
+            grad_C += self.dBy.T @ grad_dP_dy @ self.Bx
+
+        return grad_C.flatten()

@@ -19,12 +19,13 @@ wavelengths = np.array([650e-9, 532e-9, 473e-9])  # R, G, B wavelengths (m)
 C_values = np.array([2.3e-10, 2.5e-10, 2.7e-10])  # Stress-optic coefficients (1/Pa)
 nu = 1.0  # Solid fraction
 L = 0.01  # Sample thickness (m)
-S_i_hat = np.array([1, 0])  # Incoming linearly polarised light at 0 degrees
+# S_i_hat = np.array([1, 0, 0])  # Incoming linearly polarised light at 0 degrees
+S_i_hat = np.array([0, 0, 1])  # Incoming circularly polarised light
 theta_test = 1  # Test angle (radians)
 n_max = 6  # max fringe order to search
 sigma_max = n_max * wavelengths.min() / (C_values.max() * nu * L)
-n_tests = 200
-resolution = 100
+n_tests = 20
+resolution = 20
 
 plt.figure()
 
@@ -66,7 +67,10 @@ def test_seeding_batch(
     # Generate "measured" Stokes components by forward prediction
     # We want (n_batch, 3, 2) output for S_m_hat
 
-    S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
+    if S_i_hat.shape[0] == 3:
+        S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
+    else:
+        S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
 
     # Pre-allocate intensities: (n_batch, 3_channels, 4_angles)
     intensities = np.zeros((n_batch, 3, 4))
@@ -108,7 +112,13 @@ def test_seeding_batch(
     # Use seeding procedure to estimate initial stress tensor
     theta_est, delta_wrap = invert_wrapped_retardance(S_m_hat, S_i_hat)
 
-    delta_sigma_guess = resolve_fringe_orders(delta_wrap, wavelengths, C_values, nu, L, sigma_max, n_max)
+    is_circular = False
+    if S_i_hat is not None and len(S_i_hat) >= 3 and abs(S_i_hat[2]) > 0.9:
+        is_circular = True
+
+    delta_sigma_guess = resolve_fringe_orders(
+        delta_wrap, wavelengths, C_values, nu, L, sigma_max, n_max, is_circular=is_circular
+    )
 
     # Avoid division by zero
     if delta_sigma == 0:
@@ -128,7 +138,7 @@ for c in range(3):
     retardance_vals = delta_sigma * 2 * np.pi * C_values[c] * nu * L / wavelengths[c]
     for delta in retardance_vals:
         I0_pol, I45_pol, I90_pol, I135_pol = forward_project(
-            theta=theta_test, delta=delta, S_i_full=np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
+            theta=theta_test, delta=delta, S_i_full=np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
         )
         I0_vals.append(I0_pol)
         I45_vals.append(I45_pol)

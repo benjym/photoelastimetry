@@ -17,8 +17,8 @@ from photoelastimetry.seeding import phase_decomposed_seeding
 from photoelastimetry.visualisation import print_boundary_conditions
 
 # Parameters
-width_m = 0.1  # 10 cm width
-height_m = 0.1  # 10 cm height
+width_m = 0.05  # width (m)
+height_m = 0.05  # height (m)
 resolution = 200  # pixels/m
 W = int(width_m * resolution)
 H = int(height_m * resolution)
@@ -41,7 +41,8 @@ wavelengths = np.array([650e-9, 550e-9, 450e-9])  # R, G, B (meters)
 C_values = np.array([1.5e-7, 1.5e-7, 1.5e-7])  # Stress-optic coeff (Pa^-1)
 polarisation_angle_deg = 10.0  # Incoming polarisation angle
 polarisation_angle_rad = np.deg2rad(polarisation_angle_deg)
-S_i_hat = np.array([np.cos(2 * polarisation_angle_rad), np.sin(2 * polarisation_angle_rad)])
+# S_i_hat = np.array([np.cos(2 * polarisation_angle_rad), np.sin(2 * polarisation_angle_rad), 0])
+S_i_hat = np.array([0, 0, 1])  # Incoming circularly polarised light
 
 print(f"Generating synthetic lithostatic data ({W}x{H})...")
 synthetic_images, true_diff, true_theta, true_sxx, true_syy, true_txy = generate_synthetic_lithostatic(
@@ -101,18 +102,6 @@ b_yy[1:-1, -1] = np.nan  # Right side (excluding corners)
 # And Reaction Force (sigma_xx) on Sides should also be Free (solved for)
 # So sigma_xx is free on ALL boundaries
 b_xx[:, :] = np.nan
-
-# 3. Shear Stress (sigma_xy) is 0 on all boundaries (Symmetry/Free)
-# b_xy is already all zeros from true_txy
-
-# We only want to enforce these on the specific boundaries
-
-# xy is shear on all boundaries. Enforce everywhere.
-
-# We only want to enforce these on the specific boundaries
-# But we can pass the full arrays, the solver will only look at pixels where boundary_mask is True
-# And where the value is not NaN.
-# Since true_sxx etc are valid everywhere, we effectively clamp the boundary values to Ground Truth.
 
 boundary_values = {
     "xx": b_xx,

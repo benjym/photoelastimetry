@@ -13,7 +13,53 @@ the stress field to be consistent with these inputs while satisfying equilibrium
 import numpy as np
 import scipy.optimize
 
-from photoelastimetry.bspline import BSplineAiry
+from photoelastimetry.bspline import BSplineScalar
+
+
+class PressureFieldResult:
+    """Wrapper to present Pressure Field results as full stress fields."""
+
+    def __init__(self, bspline_p, s_xx_dev, s_yy_dev, s_xy_dev):
+        self.bspline_p = bspline_p
+        self.s_xx_dev = s_xx_dev
+        self.s_yy_dev = s_yy_dev
+        self.s_xy_dev = s_xy_dev
+        # Forward basic properties
+        self.n_coeffs = bspline_p.n_coeffs
+        self.n_coeffs_x = bspline_p.n_coeffs_x
+        self.n_coeffs_y = bspline_p.n_coeffs_y
+
+    def get_stress_fields(self, coeffs):
+        """
+        Reconstruct total stress fields from pressure coefficients and stored deviatoric parts.
+
+        Sigma_tot = P + S_dev
+        Note: If external potential V is used, it should be added externally to XX and YY.
+        """
+        # Calculate P
+        P, _, _ = self.bspline_p.get_scalar_fields(coeffs)
+
+        # Combine
+        # s_xx_dev, s_yy_dev, s_xy_dev MUST be broadcastable or same shape
+        # They are stored as full maps.
+
+        sigma_xx = P + self.s_xx_dev
+        sigma_yy = P + self.s_yy_dev
+        sigma_xy = self.s_xy_dev
+
+        return sigma_xx, sigma_yy, sigma_xy
+
+    def project_stress_gradients(self, grad_s_xx, grad_s_yy, grad_s_xy):
+        """Projections for regularization (if needed externally)."""
+        # Gradient of Loss w.r.t Stresses -> Coefficients
+        # Stress = P + S_dev
+        # dStress/dP = 1
+        # dLoss/dP = dLoss/dStress * 1
+
+        grad_P = grad_s_xx + grad_s_yy  # + 0 * grad_s_xy
+
+        # P = B * C
+        return self.bspline_p.project_scalar_gradients(grad_P, None, None)
 
 
 def recover_mean_stress(
@@ -35,8 +81,21 @@ def recover_mean_stress(
     **kwargs,
 ):
     """
-    Recover the full stress field by finding an Airy stress function that best matches
-    the observed deviatoric stress components.
+    Recover the hydrostatic (mean) stress component P(x,y) given fixed deviatoric components.
+
+    This solver assumes the deviatoric stress field (difference and orientation) provided
+    as input is trusted and fixed. It solves for the scalar pressure field P(x,y) that
+    best satisfies the stress equilibrium equations in a least-squares sense using a B-Spline
+    representation.
+
+    Stresses are constructed as:
+        sigma_xx = P(x,y) + s_xx_meas
+        sigma_yy = P(x,y) + s_yy_meas
+        sigma_xy = s_xy_meas
+
+    Equilibrium requires:
+        d(sigma_xx)/dx + d(sigma_xy)/dy = 0  =>  dP/dx = -d(s_xx_meas)/dx - d(s_xy_meas)/dy
+        d(sigma_xy)/dx + d(sigma_yy)/dy = 0  =>  dP/dy = -d(s_xy_meas)/dx - d(s_yy_meas)/dy
 
     Parameters
     ----------
@@ -57,57 +116,91 @@ def recover_mean_stress(
         Weight for smoothness regularisation on B-spline coefficients.
     external_potential : ndarray, optional
         Scalar field V(x,y) [H, W] representing body force potential (e.g. -rho*g*y).
-        This field is added to sigma_xx and sigma_yy:
-        sigma_xx_total = d2phi/dy2 + V
-        sigma_yy_total = d2phi/dx2 + V
-        If provided, the solver optimizes phi such that total stresses match observations.
+        This term is added to the equilibrium equations:
+            d(sigma_xx)/dx + ... + F_x = 0  (where F_x = -dV/dx)
+        If external_potential represents V where F = -grad(V), then:
+            dP/dx = ... + dV/dx
+            dP/dy = ... + dV/dy
+        Effectively, P_total = P_solved - V.
+        However, the current implementation treats input V as adding to normal stresses directly?
+        Let's assume standard gravity potential: sigma_ij_total = sigma_ij_effective + delta_ij * V?
+        Or simply Body Forces F_i.
+        If external_potential is provided as V (potential) such that F = -grad(V).
     initial_stress_map : ndarray, optional
-        Initial guess for stress field [H, W, 3] to seed B-spline.
-    boundary_weight : float
-        Weight for boundary condition penalty.
-    initial_stress_map : ndarray, optional
-        Initial guess for stress field [H, W, 3] to seed B-spline.
+        Initial guess for stress field to seed P.
 
     Returns
     -------
-    bspline : BSplineAiry
-        Fitted B-spline object.
+    bspline : BSplineScalar
+        Fitted B-spline object for Pressure field.
+    coeffs : ndarray
+        Coefficients for P.
     """
 
     H, W = delta_sigma_map.shape
 
-    # 1. Compute target deviatoric components from input maps
-    # We want the solver to find stresses such that:
-    #   sigma_xx - sigma_yy  approx  delta_sigma * cos(2*theta)
-    #   sigma_xy             approx  0.5 * delta_sigma * sin(2*theta)
+    # 1. Compute trusted deviatoric components
+    # s_xx_dev = 0.5 * delta * cos(2theta)
+    # s_yy_dev = -0.5 * delta * cos(2theta)
+    # s_xy_dev = 0.5 * delta * sin(2theta)
 
-    target_diff = delta_sigma_map * np.cos(2 * theta_map)
-    target_shear = 0.5 * delta_sigma_map * np.sin(2 * theta_map)
+    cos_2t = np.cos(2 * theta_map)
+    sin_2t = np.sin(2 * theta_map)
 
-    # Scale factor estimation
-    # Use max stress for scaling coefficients
-    max_stress = np.nanmax(delta_sigma_map)
-    if max_stress == 0 or np.isnan(max_stress):
-        max_stress = 1.0
-
-    if verbose:
-        print(f"Mean Stress Solver: Max stress {max_stress:.2e} Pa.")
+    s_xx_meas = 0.5 * delta_sigma_map * cos_2t
+    s_yy_meas = -0.5 * delta_sigma_map * cos_2t
+    s_xy_meas = 0.5 * delta_sigma_map * sin_2t
 
     # Handle NaNs in input
-    valid_mask = ~(np.isnan(target_diff) | np.isnan(target_shear))
+    valid_mask = ~(np.isnan(delta_sigma_map) | np.isnan(theta_map))
     if verbose and not np.all(valid_mask):
         print(f"Mean Stress Solver: Ignoring {np.sum(~valid_mask)} pixels with NaN inputs.")
+        # Fill NaNs with 0 (gradients will be messy at edges of NaNs, but masking handles loss)
+        s_xx_meas[~valid_mask] = 0
+        s_yy_meas[~valid_mask] = 0
+        s_xy_meas[~valid_mask] = 0
 
-    target_diff[~valid_mask] = 0
-    target_shear[~valid_mask] = 0
+    # 2. Compute target gradients for P
+    # Gradients of measured fields using central difference
+    # gradient returns list [d/dy, d/dx]
+    diff_s_xx = np.gradient(s_xx_meas)
+    ds_xx_dy, ds_xx_dx = diff_s_xx
 
-    # Initialize B-Spline basis
-    bspline = BSplineAiry((H, W), knot_spacing=knot_spacing, degree=spline_degree)
+    diff_s_yy = np.gradient(s_yy_meas)
+    ds_yy_dy, ds_yy_dx = diff_s_yy
+
+    diff_s_xy = np.gradient(s_xy_meas)
+    ds_xy_dy, ds_xy_dx = diff_s_xy
+
+    # Equilibrium Targets:
+    # dP/dx = - (ds_xx/dx + ds_xy/dy) - F_x
+    # dP/dy = - (ds_xy/dx + ds_yy/dy) - F_y
+
+    # Body forces from external potential V
+    # F = -grad(V). So term -F becomes +grad(V)
+    # dP/dx_target = - (ds_xx/dx + ds_xy/dy) + dV/dx
+
+    # dP/dx_target = - (ds_xx/dx + ds_xy/dy)
+    # dP/dy_target = - (ds_xy/dx + ds_yy/dy)
+    # (Body forces handled by implicit cancellation or external addition)
+
+    target_grad_P_x = -(ds_xx_dx + ds_xy_dy)
+    target_grad_P_y = -(ds_xy_dx + ds_yy_dy)
+
+    if verbose:
+        max_grad = np.max(np.sqrt(target_grad_P_x**2 + target_grad_P_y**2))
+        print(f"Mean Stress Solver: Max target gradient {max_grad:.2e} Pa/px.")
+
+    # Initialize B-Spline Scalara
+    bspline_backing = BSplineScalar((H, W), knot_spacing=knot_spacing, degree=spline_degree)
+
+    # Create Wrapper
+    bspline_wrapper = PressureFieldResult(bspline_backing, s_xx_meas, s_yy_meas, s_xy_meas)
 
     if verbose:
         print(
             f"Mean Stress Solver: Grid {H}x{W}, Knots {knot_spacing}px, "
-            f"Coeffs {bspline.n_coeffs_y}x{bspline.n_coeffs_x} ({bspline.n_coeffs})"
+            f"Coeffs {bspline_backing.n_coeffs_y}x{bspline_backing.n_coeffs_x} ({bspline_backing.n_coeffs})"
         )
 
     # Optimization counter
@@ -116,149 +209,98 @@ def recover_mean_stress(
     def loss_and_gradient(coeffs_flat):
         iteration_count[0] += 1
 
-        # Calculate stresses from current Airy function
-        s_xx, s_yy, s_xy = bspline.get_stress_fields(coeffs_flat)
-        # Add external potential (body forces)
-        if external_potential is not None:
-            s_xx = s_xx + external_potential
-            s_yy = s_yy + external_potential
-        # Derived deviatoric components
-        model_diff = s_xx - s_yy
-        model_shear = s_xy
+        # Calculate P and gradients from current spline
+        P, dP_dx, dP_dy = bspline_backing.get_scalar_fields(coeffs_flat)
 
-        # Residuals
-        resid_diff = model_diff - target_diff
-        resid_shear = model_shear - target_shear
+        # Residuals in gradients (Equilibrium violation)
+        res_grad_x = dP_dx - target_grad_P_x
+        res_grad_y = dP_dy - target_grad_P_y
 
-        # Mask invalid pixels
-        resid_diff[~valid_mask] = 0
-        resid_shear[~valid_mask] = 0
+        # Mask invalid pixels (where input or gradients are bad)
+        # Note: np.gradient at edges is less accurate.
+        # We assume valid_mask covers the trust region.
+        res_grad_x[~valid_mask] = 0
+        res_grad_y[~valid_mask] = 0
 
         # Loss function
-        # L = sum( (s_xx - s_yy - T_diff)^2 + 4 * (s_xy - T_shear)^2 )
-        # Factor of 4 on shear is optional but makes it consistent with L2 norm of Deviatoric vector
-        # (diff, 2*shear). Or we can treat them equally. Let's treat them equally (factor 1).
-        # Actually, let's stick to simple least squares on components.
-        loss = np.sum(resid_diff**2) + 4 * np.sum(resid_shear**2)
+        loss = np.sum(res_grad_x**2 + res_grad_y**2)
 
-        # Gradients w.r.t stresses
-        # dL/d(s_xx) = 2 * resid_diff
-        # dL/d(s_yy) = -2 * resid_diff
-        # dL/d(s_xy) = 8 * resid_shear
+        # Gradients w.r.t P fields
+        # dL/d(dP/dx) = 2 * res_grad_x
+        # dL/d(dP/dy) = 2 * res_grad_y
+        # dL/dP = 0 (from equilibrium term)
 
-        grad_s_xx = 2 * resid_diff
-        grad_s_yy = -2 * resid_diff
-        grad_s_xy = 8 * resid_shear
+        grad_dP_dx = 2 * res_grad_x
+        grad_dP_dy = 2 * res_grad_y
+        grad_P = np.zeros_like(P)
 
-        # Boundary penalty
-        if boundary_mask is not None:
-            # If boundary_values are provided, penalise deviation from them
-            # If not provided, assume zero stress at boundary (for now, or raise error)
+        # Boundary penalty on P values (Dirichlet conditions)
+        # If we have known stresses at boundaries:
+        # sigma_xx_bound = P + s_xx_meas (+ V if V used) => P_target = sigma_xx_bound - s_xx_meas (- V)
 
+        if boundary_mask is not None and boundary_values is not None:
             mask_w = boundary_mask.astype(float) * boundary_weight
 
-            if boundary_values is not None:
-                # Targeted boundary conditions
-                # Only enforce components present in dictionary
+            # We enforce P to match implied pressure from boundary conditions
+            # Prioritize Normal stresses which give P directly
 
-                if "xx" in boundary_values:
-                    b_xx = boundary_values["xx"]
-                    res_b_xx = s_xx - b_xx
-                    # Check for NaNs in boundary values to allow per-pixel freedom
-                    if np.isnan(b_xx).any():
-                        valid_b = ~np.isnan(b_xx)
-                        # Only apply where both boundary_mask is true AND value is valid
-                        active_mask = boundary_mask & valid_b
-                        loss += boundary_weight * np.sum(res_b_xx[active_mask] ** 2)
-                        grad_s_xx[active_mask] += 2 * boundary_weight * res_b_xx[active_mask]
-                    else:
-                        loss += boundary_weight * np.sum(res_b_xx[boundary_mask] ** 2)
-                        grad_s_xx += 2 * mask_w * res_b_xx
+            # Count how many conditions set P at each pixel
+            count_P = np.zeros_like(P, dtype=float)
+            sum_P_target = np.zeros_like(P)
 
-                if "yy" in boundary_values:
-                    b_yy = boundary_values["yy"]
-                    res_b_yy = s_yy - b_yy
-                    if np.isnan(b_yy).any():
-                        valid_b = ~np.isnan(b_yy)
-                        active_mask = boundary_mask & valid_b
-                        loss += boundary_weight * np.sum(res_b_yy[active_mask] ** 2)
-                        grad_s_yy[active_mask] += 2 * boundary_weight * res_b_yy[active_mask]
-                    else:
-                        loss += boundary_weight * np.sum(res_b_yy[boundary_mask] ** 2)
-                        grad_s_yy += 2 * mask_w * res_b_yy
+            V_term = external_potential if external_potential is not None else 0
 
-                if "xy" in boundary_values:
-                    b_xy = boundary_values["xy"]
-                    res_b_xy = s_xy - b_xy
-                    if np.isnan(b_xy).any():
-                        valid_b = ~np.isnan(b_xy)
-                        active_mask = boundary_mask & valid_b
-                        loss += boundary_weight * np.sum(res_b_xy[active_mask] ** 2)
-                        grad_s_xy[active_mask] += 2 * boundary_weight * res_b_xy[active_mask]
-                    else:
-                        loss += boundary_weight * np.sum(res_b_xy[boundary_mask] ** 2)
-                        grad_s_xy += 2 * mask_w * res_b_xy
+            if "xx" in boundary_values:
+                b_xx = boundary_values["xx"]
+                if not np.all(np.isnan(b_xx)):  # If useful
+                    valid_b = ~np.isnan(b_xx) & boundary_mask
+                    # P = sigma_xx - s_xx_dev - V
+                    p_from_xx = b_xx - s_xx_meas - V_term
+                    sum_P_target[valid_b] += p_from_xx[valid_b]
+                    count_P[valid_b] += 1
 
-            else:
-                # Default: zero stress magnitude (maybe aggressive?)
-                # Assuming free boundary -> zero normal/shear?
-                # Let's enforce zero stress vector magnitude if not specified?
-                # Or user should pass boundary values.
-                # Reverting to "zero stress magnitude" behavior of original solver if no values
-                stress_sq = s_xx**2 + s_yy**2 + 2 * s_xy**2
-                loss += boundary_weight * np.sum(stress_sq[boundary_mask])
+            if "yy" in boundary_values:
+                b_yy = boundary_values["yy"]
+                if not np.all(np.isnan(b_yy)):
+                    valid_b = ~np.isnan(b_yy) & boundary_mask
+                    # P = sigma_yy - s_yy_dev - V
+                    p_from_yy = b_yy - s_yy_meas - V_term
+                    sum_P_target[valid_b] += p_from_yy[valid_b]
+                    count_P[valid_b] += 1
 
-                # Gradient
-                grad_s_xx += 2 * mask_w * s_xx
-                grad_s_yy += 2 * mask_w * s_yy
-                grad_s_xy += 4 * mask_w * s_xy
+            if "xy" in boundary_values:
+                # XY boundary condition does not constrain P directly!
+                # It constrains s_xy_meas, which is fixed input.
+                pass
 
-        # regularisation (Smoothness of coefficients)
-        grad_coeffs = bspline.project_stress_gradients(grad_s_xx, grad_s_yy, grad_s_xy)
+            # Average targets where consistent
+            has_target = count_P > 0
 
+            if np.any(has_target):
+                P_target = np.zeros_like(P)
+                P_target[has_target] = sum_P_target[has_target] / count_P[has_target]
+
+                res_P = P - P_target
+
+                loss += boundary_weight * np.sum(res_P[has_target] ** 2)
+                grad_P[has_target] += 2 * boundary_weight * res_P[has_target]
+
+        elif boundary_mask is not None:
+            # Fallback
+            pass
+
+        # Also add a tiny regularization on P magnitude to fix the integration constant
+        if boundary_mask is None or not np.any(boundary_mask):
+            loss += 1e-6 * np.sum(P**2)
+            grad_P += 2 * 1e-6 * P
+
+        # Backproject gradients to coefficients
+        grad_coeffs = bspline_backing.project_scalar_gradients(grad_P, grad_dP_dx, grad_dP_dy)
+
+        # Smoothness regularization
         if regularisation_weight > 0:
-            C_grid = coeffs_flat.reshape(bspline.n_coeffs_y, bspline.n_coeffs_x)
-
-            grad_reg_y = np.zeros_like(C_grid)
-            grad_reg_x = np.zeros_like(C_grid)
-            reg_term = 0.0
-
-            if regularisation_order == 1:
-                # 1st order difference (Gradient penalty)
-                diff_y = np.diff(C_grid, axis=0)
-                diff_x = np.diff(C_grid, axis=1)
-
-                reg_term = np.sum(diff_y**2) + np.sum(diff_x**2)
-                loss += regularisation_weight * reg_term
-
-                grad_reg_y[:-1, :] -= 2 * diff_y
-                grad_reg_y[1:, :] += 2 * diff_y
-                grad_reg_x[:, :-1] -= 2 * diff_x
-                grad_reg_x[:, 1:] += 2 * diff_x
-
-            elif regularisation_order == 2:
-                # 2nd order difference (Curvature penalty)
-                if C_grid.shape[0] > 2:
-                    diff2_y = np.diff(C_grid, n=2, axis=0)
-                    reg_term += np.sum(diff2_y**2)
-
-                    term_y = 2 * diff2_y
-                    grad_reg_y[:-2, :] += term_y
-                    grad_reg_y[1:-1, :] -= 2 * term_y
-                    grad_reg_y[2:, :] += term_y
-
-                if C_grid.shape[1] > 2:
-                    diff2_x = np.diff(C_grid, n=2, axis=1)
-                    reg_term += np.sum(diff2_x**2)
-
-                    term_x = 2 * diff2_x
-                    grad_reg_x[:, :-2] += term_x
-                    grad_reg_x[:, 1:-1] -= 2 * term_x
-                    grad_reg_x[:, 2:] += term_x
-
-                loss += regularisation_weight * reg_term
-
-            grad_coeffs += regularisation_weight * (grad_reg_y + grad_reg_x).flatten()
+            grad_coeffs += regularisation_weight * coeffs_flat  # Simple L2 Ridge
+            loss += 0.5 * regularisation_weight * np.sum(coeffs_flat**2)
 
         if verbose and iteration_count[0] % 10 == 0:
             print(f"Mean Stress Solver Iteration {iteration_count[0]}, Loss: {loss:.6e}", end="\r")
@@ -266,19 +308,32 @@ def recover_mean_stress(
         return loss, grad_coeffs
 
     # Initialize coefficients
-    # Should probably initialize from measurement if possible
-    # We can fit a spline to the deviatoric measurements?
-    # Hard to fit p if it's unknown.
-    # Start from zero or initial_stress_map if provided.
-
     if initial_stress_map is not None:
-        if verbose:
-            print("Mean Stress Solver: Initializing from supplied stress map...")
-        fitted_coeffs = bspline.fit_stress_field(initial_stress_map)
-        initial_coeffs = fitted_coeffs
+        # Estimate P form initial map
+        # initial_stress_map contains full [xx, yy, xy]
+        s_xx_init = initial_stress_map[:, :, 0]
+        s_yy_init = initial_stress_map[:, :, 1]
+
+        # P_init = (s_xx + s_yy)/2 - V? No, P is just (s_xx + s_yy)/2 - s_dev...
+        # s_xx = P + s_xx_dev => P = s_xx - s_xx_dev
+        # s_yy = P + s_yy_dev => P = s_yy - s_yy_dev
+        # Average: P = Mean_Stress - (s_xx_dev + s_yy_dev)/2
+        # But s_xx_dev = -s_yy_dev, so (s_xx_dev + s_yy_dev)/2 = 0
+        # So P_init = Mean_Stress = (s_xx + s_yy)/2
+
+        # We must subtract V if initial map includes V
+        V_init = external_potential if external_potential is not None else 0
+
+        P_init_field = (s_xx_init + s_yy_init) / 2.0 - V_init
+
+        # We need to fit bspline coefficients to this scalar field
+        # Simple least squares
+        # C = min ||B*C - P||^2
+        # Or just start zero.
+        initial_coeffs = np.zeros(bspline_backing.n_coeffs)
     else:
         rng = np.random.default_rng(42)
-        initial_coeffs = rng.normal(0, 1e-10, bspline.n_coeffs)
+        initial_coeffs = rng.normal(0, 1e-10, bspline_backing.n_coeffs)
 
     # Optimization
     res = scipy.optimize.minimize(
@@ -292,4 +347,4 @@ def recover_mean_stress(
     if verbose:
         print(f"\nOptimization finished: {res.message}")
 
-    return bspline, res.x
+    return bspline_wrapper, res.x
