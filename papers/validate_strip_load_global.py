@@ -37,9 +37,10 @@ wavelengths = np.array([650e-9, 550e-9, 450e-9])  # R, G, B (meters)
 C_values = np.array([4.0e-9, 4.0e-9, 4.0e-9]) * 10  # Stress-optic coeff (Pa^-1)
 polarisation_efficiency = 1.0
 
-polarisation_angle_deg = 0.0  # Incoming polarisation angle
-polarisation_angle_rad = np.deg2rad(polarisation_angle_deg)
-S_i_hat = np.array([np.cos(2 * polarisation_angle_rad), np.sin(2 * polarisation_angle_rad)])
+# polarisation_angle_deg = 0.0  # Incoming polarisation angle
+# polarisation_angle_rad = np.deg2rad(polarisation_angle_deg)
+# S_i_hat = np.array([np.cos(2 * polarisation_angle_rad), np.sin(2 * polarisation_angle_rad)])
+S_i_hat = np.array([0, 0, 1])  # Circularly polarised light
 
 # Valid region mask
 mask = np.ones((H, W), dtype=bool)
@@ -116,7 +117,9 @@ print("\n")
 
 V_potential = np.zeros_like(Y)
 
-initial_diff = np.abs(initial_stress[:, :, 0] - initial_stress[:, :, 1])
+initial_diff = np.sqrt(
+    (initial_stress[:, :, 0] - initial_stress[:, :, 1]) ** 2 + 4 * initial_stress[:, :, 2] ** 2
+)
 initial_theta = 0.5 * np.arctan2(
     2 * initial_stress[:, :, 2], initial_stress[:, :, 0] - initial_stress[:, :, 1]
 )
@@ -228,7 +231,7 @@ plt.title("Recovered Tau XY")
 plt.colorbar()
 
 plt.sca(axes[2, 3])
-recovered_diff = np.abs(rec_sxx - rec_syy)
+recovered_diff = np.sqrt((rec_sxx - rec_syy) ** 2 + 4 * rec_txy**2)
 plt.imshow(recovered_diff, cmap="viridis")
 plt.title("Recovered Principal Diff")
 plt.colorbar()

@@ -24,8 +24,8 @@ S_i_hat = np.array([0, 0, 1])  # Incoming circularly polarised light
 theta_test = 1  # Test angle (radians)
 n_max = 6  # max fringe order to search
 sigma_max = n_max * wavelengths.min() / (C_values.max() * nu * L)
-n_tests = 20
-resolution = 20
+n_tests = 50
+resolution = 50
 
 plt.figure()
 
@@ -159,6 +159,10 @@ print("Done plotting retardance curves, now plotting heatmaps.")
 stress_levels = np.linspace(0.0, sigma_max, resolution + 1)[1:]
 SnRs = np.logspace(0, 2, resolution)
 error_array = np.zeros((len(stress_levels), len(SnRs)))
+dSnR = np.sqrt(SnRs[1] / SnRs[0])
+SnRplot = np.logspace(np.log10(SnRs[0] / dSnR), np.log10(SnRs[-1] * dSnR), len(SnRs) + 1)
+stress_plot = np.linspace(stress_levels[0] / sigma_max, stress_levels[-1] / sigma_max, len(stress_levels) + 1)
+plt.subplot(223)
 
 for i, stress in tqdm(enumerate(stress_levels), total=len(stress_levels), desc="Stress level"):
     for j, SnR in enumerate(SnRs):
@@ -168,19 +172,16 @@ for i, stress in tqdm(enumerate(stress_levels), total=len(stress_levels), desc="
         mean_error = np.median(errors)
         error_array[i, j] = mean_error
 
+    plt.pcolormesh(
+        SnRplot,
+        stress_plot,
+        error_array,
+        shading="auto",
+        norm=LogNorm(vmin=1e-3, vmax=1e0),
+        rasterized=True,
+    )
+    plt.savefig("papers/seeding_validation.png", dpi=100)
 
-plt.subplot(223)
-dSnR = np.sqrt(SnRs[1] / SnRs[0])
-SnRplot = np.logspace(np.log10(SnRs[0] / dSnR), np.log10(SnRs[-1] * dSnR), len(SnRs) + 1)
-stress_plot = np.linspace(stress_levels[0] / sigma_max, stress_levels[-1] / sigma_max, len(stress_levels) + 1)
-plt.pcolormesh(
-    SnRplot,
-    stress_plot,
-    error_array,
-    shading="auto",
-    norm=LogNorm(vmin=1e-3, vmax=1e0),
-    rasterized=True,
-)
 plt.colorbar(label="Median relative error", extend="both")
 plt.xscale("log")
 plt.xlabel("Signal-to-noise ratio (SnR)")
@@ -195,6 +196,10 @@ print("Done plotting stress level heatmap, now angle heatmap.")
 angles = np.linspace(0.0, np.pi / 2.0, resolution)  # Fraction of sigma_max
 SnRs = np.logspace(0, 3, resolution)
 error_array = np.zeros((len(angles), len(SnRs)))
+plt.subplot(224)
+dSnR = np.sqrt(SnRs[1] / SnRs[0])
+SnRplot = np.logspace(np.log10(SnRs[0] / dSnR), np.log10(SnRs[-1] * dSnR), len(SnRs) + 1)
+angle_plot = np.linspace(angles[0], angles[-1], len(angles) + 1)
 
 delta_sigma = sigma_max * 0.5
 for i, angle in tqdm(enumerate(angles), total=len(angles), desc="Angle"):
@@ -206,19 +211,16 @@ for i, angle in tqdm(enumerate(angles), total=len(angles), desc="Angle"):
         mean_error = np.median(errors)
         error_array[i, j] = mean_error
 
+    plt.pcolormesh(
+        SnRplot,
+        angle_plot,
+        error_array,
+        shading="auto",
+        norm=LogNorm(vmin=1e-3, vmax=1e0),
+        rasterized=True,
+    )
+    plt.savefig("papers/seeding_validation.png", dpi=100)
 
-plt.subplot(224)
-dSnR = np.sqrt(SnRs[1] / SnRs[0])
-SnRplot = np.logspace(np.log10(SnRs[0] / dSnR), np.log10(SnRs[-1] * dSnR), len(SnRs) + 1)
-angle_plot = np.linspace(angles[0], angles[-1], len(angles) + 1)
-plt.pcolormesh(
-    SnRplot,
-    angle_plot,
-    error_array,
-    shading="auto",
-    norm=LogNorm(vmin=1e-3, vmax=1e0),
-    rasterized=True,
-)
 plt.colorbar(label="Median relative error", extend="both")
 plt.xscale("log")
 plt.yticks([0, np.pi / 4, np.pi / 2], ["0", r"$\pi/4$", r"$\pi/2$"])

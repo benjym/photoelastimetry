@@ -291,3 +291,54 @@ class BSplineScalar(BSplineAiry):
             grad_C += self.dBy.T @ grad_dP_dy @ self.Bx
 
         return grad_C.flatten()
+
+    def fit_scalar_field(self, scalar_field, mask=None, maxiter=100):
+        """
+        Fit B-spline coefficients to a target scalar field.
+
+        Parameters
+        ----------
+        scalar_field : ndarray
+            Target scalar map with shape (ny, nx).
+        mask : ndarray of bool, optional
+            Optional valid-pixel mask with shape (ny, nx). Pixels outside the mask
+            are ignored. NaNs are always ignored.
+        maxiter : int
+            Maximum optimizer iterations.
+
+        Returns
+        -------
+        coeffs_flat : ndarray
+            Flattened coefficients fitting the scalar map.
+        """
+        target_P = np.asarray(scalar_field)
+        if target_P.shape != (self.ny, self.nx):
+            raise ValueError(f"scalar_field shape must be {(self.ny, self.nx)}, got {target_P.shape}")
+
+        if mask is None:
+            valid = ~np.isnan(target_P)
+        else:
+            valid = mask & ~np.isnan(target_P)
+
+        if not np.any(valid):
+            return np.zeros(self.n_coeffs)
+
+        def loss_and_grad(coeffs):
+            P, _, _ = self.get_scalar_fields(coeffs)
+            diff = np.zeros_like(P)
+            diff[valid] = P[valid] - target_P[valid]
+
+            loss = np.sum(diff[valid] ** 2)
+            grad = self.project_scalar_gradients(2 * diff, None, None)
+            return loss, grad
+
+        from scipy.optimize import minimize
+
+        res = minimize(
+            loss_and_grad,
+            np.zeros(self.n_coeffs),
+            jac=True,
+            method="L-BFGS-B",
+            options={"disp": False, "maxiter": maxiter},
+        )
+        return res.x

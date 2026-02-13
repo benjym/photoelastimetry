@@ -39,8 +39,8 @@ K0 = 0.5  # Lateral earth pressure coefficient
 thickness = 0.01  # 10 mm
 wavelengths = np.array([650e-9, 550e-9, 450e-9])  # R, G, B (meters)
 C_values = np.array([1.5e-7, 1.5e-7, 1.5e-7])  # Stress-optic coeff (Pa^-1)
-polarisation_angle_deg = 10.0  # Incoming polarisation angle
-polarisation_angle_rad = np.deg2rad(polarisation_angle_deg)
+# polarisation_angle_deg = 10.0  # Incoming polarisation angle
+# polarisation_angle_rad = np.deg2rad(polarisation_angle_deg)
 # S_i_hat = np.array([np.cos(2 * polarisation_angle_rad), np.sin(2 * polarisation_angle_rad), 0])
 S_i_hat = np.array([0, 0, 1])  # Incoming circularly polarised light
 
@@ -118,7 +118,9 @@ print("\n")
 # Equilibrium: d(Syy)/dy = rho*g => V = rho*g*y
 V_potential = rho * g * Y
 
-initial_diff = np.abs(initial_stress[:, :, 0] - initial_stress[:, :, 1])
+initial_diff = np.sqrt(
+    (initial_stress[:, :, 0] - initial_stress[:, :, 1]) ** 2 + 4 * initial_stress[:, :, 2] ** 2
+)
 initial_theta = 0.5 * np.arctan2(
     2 * initial_stress[:, :, 2], initial_stress[:, :, 0] - initial_stress[:, :, 1]
 )
@@ -220,7 +222,7 @@ plt.title("Recovered Tau XY")
 plt.colorbar()
 
 plt.sca(axes[2, 3])
-recovered_diff = np.abs(rec_sxx - rec_syy)
+recovered_diff = np.sqrt((rec_sxx - rec_syy) ** 2 + 4 * rec_txy**2)
 plt.imshow(recovered_diff, cmap="viridis")
 plt.title("Recovered Principal Diff")
 plt.colorbar()

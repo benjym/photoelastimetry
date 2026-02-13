@@ -36,10 +36,11 @@ K0 = 0.5  # Lateral earth pressure coefficient
 # Photoelastic parameters
 thickness = 0.01  # 10 mm
 wavelengths = np.array([650e-9, 550e-9, 450e-9])  # R, G, B (meters)
-C_values = np.array([1.5e-7, 1.5e-7, 1.5e-7])  # Stress-optic coeff (Pa^-1)
-polarisation_angle_deg = 10.0  # Incoming polarisation angle
-polarisation_angle_rad = np.deg2rad(polarisation_angle_deg)
-S_i_hat = np.array([np.cos(2 * polarisation_angle_rad), np.sin(2 * polarisation_angle_rad)])
+C_values = np.array([1e-7, 1e-7, 1e-7])  # Stress-optic coeff (Pa^-1)
+# polarisation_angle_deg = 10.0  # Incoming polarisation angle
+# polarisation_angle_rad = np.deg2rad(polarisation_angle_deg)
+# S_i_hat = np.array([np.cos(2 * polarisation_angle_rad), np.sin(2 * polarisation_angle_rad)])
+S_i_hat = np.array([0, 0, 1])  # Circularly polarised light
 
 print(f"Generating synthetic inclined plane data ({W}x{H}) with θ={theta_deg}°...")
 synthetic_images, true_diff, true_theta, true_sxx, true_syy, true_txy = generate_synthetic_inclined_plane(
@@ -127,7 +128,9 @@ print("\n")
 theta_rad = np.deg2rad(theta_deg)
 V_potential = rho * g * (np.sin(theta_rad) * X + np.cos(theta_rad) * Y)
 
-initial_diff = np.abs(initial_stress[:, :, 0] - initial_stress[:, :, 1])
+initial_diff = np.sqrt(
+    (initial_stress[:, :, 0] - initial_stress[:, :, 1]) ** 2 + 4 * initial_stress[:, :, 2] ** 2
+)
 initial_theta = 0.5 * np.arctan2(
     2 * initial_stress[:, :, 2], initial_stress[:, :, 0] - initial_stress[:, :, 1]
 )
@@ -230,7 +233,7 @@ plt.title("Recovered Tau XY")
 plt.colorbar()
 
 plt.sca(axes[2, 3])
-recovered_diff = np.abs(rec_sxx - rec_syy)
+recovered_diff = np.sqrt((rec_sxx - rec_syy) ** 2 + 4 * rec_txy**2)
 plt.imshow(recovered_diff, cmap="viridis")
 plt.title("Recovered Principal Diff")
 plt.colorbar()

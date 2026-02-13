@@ -3,7 +3,8 @@ Global Mean Stress Recovery Solver.
 
 This module provides a solver that reconstructs the hydrostatic (mean) stress component
 given the known deviatoric stress components (derived from photoelastic measurements),
-while enforcing global equilibrium using the Airy stress function.
+while enforcing global equilibrium in a least-squares sense using a scalar B-spline
+pressure field.
 
 Unlike the full equilibrium solver, this approach assumes the principal stress difference
 and orientation are "trusted" inputs (e.g. from high-quality seeding), and only optimizes
@@ -60,6 +61,31 @@ class PressureFieldResult:
 
         # P = B * C
         return self.bspline_p.project_scalar_gradients(grad_P, None, None)
+
+
+def stress_to_principal_invariants(stress_map):
+    """
+    Convert a stress map [sigma_xx, sigma_yy, sigma_xy] to (delta_sigma, theta).
+
+    Parameters
+    ----------
+    stress_map : ndarray
+        Stress tensor map with shape (..., 3) ordered as [xx, yy, xy].
+
+    Returns
+    -------
+    delta_sigma_map : ndarray
+        Principal stress difference sqrt((xx-yy)^2 + 4*xy^2).
+    theta_map : ndarray
+        Principal stress angle 0.5*atan2(2*xy, xx-yy).
+    """
+    s_xx = stress_map[..., 0]
+    s_yy = stress_map[..., 1]
+    s_xy = stress_map[..., 2]
+
+    delta_sigma_map = np.sqrt((s_xx - s_yy) ** 2 + 4 * s_xy**2)
+    theta_map = 0.5 * np.arctan2(2 * s_xy, s_xx - s_yy)
+    return delta_sigma_map, theta_map
 
 
 def recover_mean_stress(
@@ -139,6 +165,12 @@ def recover_mean_stress(
 
     H, W = delta_sigma_map.shape
 
+    if external_potential is not None:
+        external_potential = np.asarray(external_potential)
+
+    if external_potential is not None and external_potential.shape != (H, W):
+        raise ValueError(f"external_potential must have shape {(H, W)}, got {external_potential.shape}")
+
     # 1. Compute trusted deviatoric components
     # s_xx_dev = 0.5 * delta * cos(2theta)
     # s_yy_dev = -0.5 * delta * cos(2theta)
@@ -153,6 +185,9 @@ def recover_mean_stress(
 
     # Handle NaNs in input
     valid_mask = ~(np.isnan(delta_sigma_map) | np.isnan(theta_map))
+    if external_potential is not None:
+        valid_mask &= ~np.isnan(external_potential)
+
     if verbose and not np.all(valid_mask):
         print(f"Mean Stress Solver: Ignoring {np.sum(~valid_mask)} pixels with NaN inputs.")
         # Fill NaNs with 0 (gradients will be messy at edges of NaNs, but masking handles loss)
@@ -187,6 +222,12 @@ def recover_mean_stress(
     target_grad_P_x = -(ds_xx_dx + ds_xy_dy)
     target_grad_P_y = -(ds_xy_dx + ds_yy_dy)
 
+    if external_potential is not None:
+        safe_V = np.nan_to_num(external_potential, nan=0.0)
+        dV_dy, dV_dx = np.gradient(safe_V)
+        target_grad_P_x += dV_dx
+        target_grad_P_y += dV_dy
+
     if verbose:
         max_grad = np.max(np.sqrt(target_grad_P_x**2 + target_grad_P_y**2))
         print(f"Mean Stress Solver: Max target gradient {max_grad:.2e} Pa/px.")
@@ -196,6 +237,13 @@ def recover_mean_stress(
 
     # Create Wrapper
     bspline_wrapper = PressureFieldResult(bspline_backing, s_xx_meas, s_yy_meas, s_xy_meas)
+
+    has_pressure_bc_global = False
+    if boundary_mask is not None and boundary_values is not None:
+        if "xx" in boundary_values:
+            has_pressure_bc_global |= np.any(boundary_mask & ~np.isnan(boundary_values["xx"]))
+        if "yy" in boundary_values:
+            has_pressure_bc_global |= np.any(boundary_mask & ~np.isnan(boundary_values["yy"]))
 
     if verbose:
         print(
@@ -239,8 +287,6 @@ def recover_mean_stress(
         # sigma_xx_bound = P + s_xx_meas (+ V if V used) => P_target = sigma_xx_bound - s_xx_meas (- V)
 
         if boundary_mask is not None and boundary_values is not None:
-            mask_w = boundary_mask.astype(float) * boundary_weight
-
             # We enforce P to match implied pressure from boundary conditions
             # Prioritize Normal stresses which give P directly
 
@@ -289,10 +335,14 @@ def recover_mean_stress(
             # Fallback
             pass
 
-        # Also add a tiny regularization on P magnitude to fix the integration constant
-        if boundary_mask is None or not np.any(boundary_mask):
-            loss += 1e-6 * np.sum(P**2)
-            grad_P += 2 * 1e-6 * P
+        # Gauge condition for under-constrained pressure: center mean pressure at zero.
+        if not has_pressure_bc_global:
+            n_valid = int(np.sum(valid_mask))
+            if n_valid > 0:
+                mean_P = np.mean(P[valid_mask])
+                gauge_weight = 1.0
+                loss += gauge_weight * mean_P**2
+                grad_P[valid_mask] += (2 * gauge_weight * mean_P) / n_valid
 
         # Backproject gradients to coefficients
         grad_coeffs = bspline_backing.project_scalar_gradients(grad_P, grad_dP_dx, grad_dP_dy)
@@ -326,11 +376,8 @@ def recover_mean_stress(
 
         P_init_field = (s_xx_init + s_yy_init) / 2.0 - V_init
 
-        # We need to fit bspline coefficients to this scalar field
-        # Simple least squares
-        # C = min ||B*C - P||^2
-        # Or just start zero.
-        initial_coeffs = np.zeros(bspline_backing.n_coeffs)
+        # Fit B-spline coefficients to the initial pressure estimate for faster convergence.
+        initial_coeffs = bspline_backing.fit_scalar_field(P_init_field, mask=valid_mask, maxiter=100)
     else:
         rng = np.random.default_rng(42)
         initial_coeffs = rng.normal(0, 1e-10, bspline_backing.n_coeffs)
@@ -346,5 +393,11 @@ def recover_mean_stress(
 
     if verbose:
         print(f"\nOptimization finished: {res.message}")
+
+    # If pressure BCs do not pin the gauge, shift coefficients to exactly zero-mean pressure.
+    if not has_pressure_bc_global and np.any(valid_mask):
+        P_opt, _, _ = bspline_backing.get_scalar_fields(res.x)
+        mean_P = np.mean(P_opt[valid_mask])
+        res.x = res.x - mean_P
 
     return bspline_wrapper, res.x

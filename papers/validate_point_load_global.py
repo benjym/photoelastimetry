@@ -124,7 +124,9 @@ print("\n")
 # No body force potential for Boussinesq (just surface load)
 V_potential = np.zeros_like(Y)
 
-initial_diff = np.abs(initial_stress[:, :, 0] - initial_stress[:, :, 1])
+initial_diff = np.sqrt(
+    (initial_stress[:, :, 0] - initial_stress[:, :, 1]) ** 2 + 4 * initial_stress[:, :, 2] ** 2
+)
 initial_theta = 0.5 * np.arctan2(
     2 * initial_stress[:, :, 2], initial_stress[:, :, 0] - initial_stress[:, :, 1]
 )
@@ -227,7 +229,7 @@ plt.title("Recovered Tau XY")
 plt.colorbar()
 
 plt.sca(axes[2, 3])
-recovered_diff = np.abs(rec_sxx - rec_syy)
+recovered_diff = np.sqrt((rec_sxx - rec_syy) ** 2 + 4 * rec_txy**2)
 plt.imshow(recovered_diff, cmap="viridis")
 plt.title("Recovered Principal Diff")
 plt.colorbar()
