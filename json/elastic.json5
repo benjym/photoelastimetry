@@ -9,5 +9,6 @@
     input_filename : "images/elastic/boussinesq_synthetic_images.tiff",
     output_filename : "images/elastic/predicted_stress_map.tiff",
     debug: false,
-    solver: "stokes"
+    knot_spacing: 8,
+    max_iterations: 100
 }

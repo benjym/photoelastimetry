@@ -274,6 +274,50 @@ def compute_normalised_stokes(S0, S1, S2):
     return S1_hat, S2_hat
 
 
+def predict_stokes(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat):
+    """
+    Predict measured normalised Stokes components from a stress state.
+
+    Parameters
+    ----------
+    sigma_xx, sigma_yy, sigma_xy : float or array-like
+        Stress tensor components (Pa).
+    C : float
+        Stress-optic coefficient (1/Pa).
+    nu : float
+        Solid fraction.
+    L : float
+        Sample thickness (m).
+    wavelength : float
+        Illumination wavelength (m).
+    S_i_hat : array-like
+        Incoming normalised Stokes state [S1_hat, S2_hat] or [S1_hat, S2_hat, S3_hat].
+
+    Returns
+    -------
+    ndarray
+        Predicted measured [S1_hat, S2_hat].
+    """
+    theta = compute_principal_angle(sigma_xx, sigma_yy, sigma_xy)
+    delta = compute_retardance(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength)
+    M = mueller_matrix(theta, delta)
+
+    S_i_hat = np.asarray(S_i_hat)
+    if len(S_i_hat) == 2:
+        S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], 0.0])
+    elif len(S_i_hat) == 3:
+        S_i_full = np.array([1.0, S_i_hat[0], S_i_hat[1], S_i_hat[2]])
+    else:
+        raise ValueError(f"S_i_hat must have length 2 or 3, got {len(S_i_hat)}")
+
+    if M.ndim == 2:
+        S_m = M @ S_i_full
+        return S_m[1:3]
+
+    S_m = np.einsum("...ij,j->...i", M, S_i_full)
+    return S_m[..., 1:3]
+
+
 def simulate_four_step_polarimetry(sigma_xx, sigma_yy, sigma_xy, C, nu, L, wavelength, S_i_hat, I0=1.0):
     """
     Simulate four-step polarimetry using Mueller matrix formalism.

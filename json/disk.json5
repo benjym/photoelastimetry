@@ -10,5 +10,6 @@
     folderName : "/Volumes/PRJ-PSM/eCaptureProData/2025_04_15/2025_04_15_15_40_24_898/02002060_diskSaving1/",
     output_filename : "images/disk/predicted_stress_map.tiff",
     debug: false,
-    solver: "stokes"
+    knot_spacing: 8,
+    max_iterations: 100
 }

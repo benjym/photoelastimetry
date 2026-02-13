@@ -52,7 +52,11 @@ The JSON5 parameter file should contain:
 - `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
 - `crop` (optional): Crop region as [y1, y2, x1, x2]
 - `debug` (optional): If true, display all channels for debugging
-- `solver` (optional): One of `stokes`, `intensity`, `global`, `global_mean_stress` (default)
+- `seeding` (optional): Controls phase-decomposed seeding (`enabled`, `n_max`, `sigma_max`)
+- `knot_spacing`, `spline_degree`, `boundary_mask_file`, `boundary_values_files`,
+  `boundary_weight`, `regularisation_weight` (`regularization_weight` alias),
+  `regularisation_order`, `external_potential_file`, `external_potential_gradient`,
+  `max_iterations`, `tolerance`, `verbose`, `debug` (optional): Optimise solver settings
 
 ### stress-to-image
 
@@ -145,7 +149,7 @@ pytest
 pytest --cov=photoelastimetry --cov-report=html
 
 # Run specific test file
-pytest tests/test_stokes_solver_pytest.py -v
+pytest tests/test_optimise.py -v
 
 # Run tests in parallel (faster)
 pytest -n auto
@@ -157,9 +161,7 @@ View the coverage report by opening `htmlcov/index.html` in your browser after r
 
 Current test coverage includes:
 
-- Stokes solver: photoelastic stress recovery using normalised Stokes parameters
-- Intensity solver: raw intensity-based stress recovery with noise modelling
-- Equilibrium solver: global stress field recovery enforcing mechanical equilibrium
+- Optimise solver: mean-stress recovery with equilibrium constraints
 - Disk simulations: synthetic photoelastic data generation
 - Image processing: retardance, principal angle, and Mueller matrix calculations
 

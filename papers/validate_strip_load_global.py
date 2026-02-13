@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from photoelastimetry.generate.strip_load import generate_synthetic_strip_load
-from photoelastimetry.optimiser.equilibrium_mean_stress import recover_mean_stress
+from photoelastimetry.optimise import recover_mean_stress
 from photoelastimetry.seeding import phase_decomposed_seeding
 from photoelastimetry.visualisation import print_boundary_conditions
 

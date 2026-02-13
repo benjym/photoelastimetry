@@ -6,10 +6,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 
 import photoelastimetry.io
-import photoelastimetry.optimiser.equilibrium
-import photoelastimetry.optimiser.equilibrium_mean_stress
-import photoelastimetry.optimiser.intensity
-import photoelastimetry.optimiser.stokes
+import photoelastimetry.optimise
 import photoelastimetry.plotting
 import photoelastimetry.seeding
 from photoelastimetry.image import compute_retardance, simulate_four_step_polarimetry
@@ -69,11 +66,17 @@ def image_to_stress(params, output_filename=None):
             - thickness (float): Sample thickness in meters
             - wavelengths (list): List of wavelengths in nanometers
             - S_i_hat (list): Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat]
+            - seeding (dict, optional): Seeding controls (`enabled`, `n_max`, `sigma_max`)
+            - top-level optimise options (optional): `knot_spacing`, `spline_degree`,
+              `boundary_mask_file`, `boundary_values_files`, `boundary_weight`,
+              `regularisation_weight` (or `regularization_weight`), `regularisation_order`,
+              `external_potential_file`, `external_potential_gradient`, `max_iterations`,
+              `tolerance`, `verbose`, `debug`
         output_filename (str, optional): Path to save the output stress map image.
             If None, the stress map is not saved. Defaults to None. Can also be specified in params.
 
     Returns:
-        numpy.ndarray: 2D array representing the stress map in Pascals.
+        numpy.ndarray: 3D stress tensor map [H, W, 3] in Pascals.
 
     Notes:
         - Assumes incoming light is fully S1 polarised
@@ -136,186 +139,119 @@ def image_to_stress(params, output_filename=None):
     if len(S_I_HAT) == 2:
         S_I_HAT = np.append(S_I_HAT, 0.0)  # Add S3_hat = 0 for backward compatibility
 
-    # Calculate stress map from image
-    n_jobs = params.get("n_jobs", -1)  # User can override to 1 on restricted systems
+    if "solver" in params:
+        raise ValueError(
+            "`solver` is no longer supported. "
+            "image_to_stress now always runs the optimise solver. "
+            "Remove `solver` from params."
+        )
+    if "global_mean_stress" in params or "global_solver" in params:
+        raise ValueError(
+            "Nested solver config blocks (`global_mean_stress`, `global_solver`) are no longer supported. "
+            "Move solver options to top-level params."
+        )
 
     # Phase Decomposed Seeding
     seeding_config = params.get("seeding", {})
-    use_seeding = seeding_config.get("enabled", True)
     n_max = seeding_config.get("n_max", 6)
     sigma_max = seeding_config.get("sigma_max", 10e6)
 
-    solver = params.get("solver", "global_mean_stress")
-    initial_stress_map = None
-    run_seeding = solver in {"intensity", "global", "global_mean_stress"} or seeding_config.get(
-        "for_stokes", False
+    print("Running phase decomposed seeding...")
+    initial_stress_map = photoelastimetry.seeding.phase_decomposed_seeding(
+        data,
+        WAVELENGTHS,
+        C_VALUES,
+        NU,
+        L,
+        S_i_hat=S_I_HAT,
+        sigma_max=sigma_max,
+        n_max=n_max,
     )
-    if use_seeding and run_seeding:
-        print("Running phase decomposed seeding...")
-        initial_stress_map = photoelastimetry.seeding.phase_decomposed_seeding(
-            data,
-            WAVELENGTHS,
-            C_VALUES,
-            NU,
-            L,
-            S_i_hat=S_I_HAT,
-            sigma_max=sigma_max,
-            n_max=n_max,
-        )
 
-    if solver == "stokes":
-        stokes_kwargs = {
-            "image_stack": data,
-            "wavelengths": WAVELENGTHS,
-            "C_values": C_VALUES,
-            "nu": NU,
-            "L": L,
-            "S_i_hat": S_I_HAT,
-            "initial_guess_map": initial_stress_map,
-            "n_jobs": n_jobs,
-        }
-        try:
-            stress_map = photoelastimetry.optimiser.stokes.recover_stress_map_stokes(**stokes_kwargs)
-        except PermissionError:
-            if n_jobs != 1:
-                print("Stokes solver: Falling back to n_jobs=1 due system limits.")
-                stokes_kwargs["n_jobs"] = 1
-                stress_map = photoelastimetry.optimiser.stokes.recover_stress_map_stokes(**stokes_kwargs)
-            else:
-                raise
-    elif solver == "intensity":
-        intensity_kwargs = {
-            "image_stack": data,
-            "wavelengths": WAVELENGTHS,
-            "C_values": C_VALUES,
-            "nu": NU,
-            "L": L,
-            "S_i_hat": S_I_HAT,
-            "initial_guess_map": initial_stress_map,
-            "n_jobs": n_jobs,
-        }
-        try:
-            stress_map, success_map = photoelastimetry.optimiser.intensity.recover_stress_map_intensity(
-                **intensity_kwargs
-            )
-        except PermissionError:
-            if n_jobs != 1:
-                print("Intensity solver: Falling back to n_jobs=1 due system limits.")
-                intensity_kwargs["n_jobs"] = 1
-                stress_map, success_map = photoelastimetry.optimiser.intensity.recover_stress_map_intensity(
-                    **intensity_kwargs
-                )
-            else:
-                raise
-    elif solver == "global":
-        # Global solver specific logic
-        gs_params = params.get("global_solver", {})
+    H, W = data.shape[:2]
 
-        boundary_mask = None
-        if "boundary_mask_file" in gs_params:
-            import tifffile
+    boundary_mask = None
+    mask_file = params.get("boundary_mask_file")
+    if mask_file is not None:
+        if not os.path.exists(mask_file):
+            raise ValueError(f"Boundary mask file not found: {mask_file}")
+        boundary_mask = _load_array(mask_file) > 0
+        if boundary_mask.shape != (H, W):
+            raise ValueError(f"Boundary mask shape must be {(H, W)}, got {boundary_mask.shape}")
 
-            if os.path.exists(gs_params["boundary_mask_file"]):
-                boundary_mask = tifffile.imread(gs_params["boundary_mask_file"]) > 0
-
-        stress_map = photoelastimetry.optimiser.equilibrium.recover_stress_global(
-            data,
-            WAVELENGTHS,
-            C_VALUES,
-            NU,
-            L,
-            S_I_HAT,
-            boundary_mask=boundary_mask,
-            initial_stress_map=initial_stress_map,
-            **gs_params,
-        )
-    elif solver == "global_mean_stress":
-        ms_params = dict(params.get("global_mean_stress", params.get("global_solver", {})))
-        H, W = data.shape[:2]
-
-        if initial_stress_map is None:
-            raise ValueError(
-                "global_mean_stress solver requires seeding to be enabled "
-                "(params['seeding']['enabled']=true)."
-            )
-
-        boundary_mask = None
-        mask_file = ms_params.pop("boundary_mask_file", None)
-        if mask_file is not None:
-            if not os.path.exists(mask_file):
-                raise ValueError(f"Boundary mask file not found: {mask_file}")
-            boundary_mask = _load_array(mask_file) > 0
-            if boundary_mask.shape != (H, W):
-                raise ValueError(f"Boundary mask shape must be {(H, W)}, got {boundary_mask.shape}")
-
-        boundary_values = None
-        boundary_value_files = ms_params.pop("boundary_values_files", None)
-        if boundary_value_files is not None:
-            boundary_values = {}
-            for key in ("xx", "yy", "xy"):
-                if key not in boundary_value_files:
-                    continue
-                value_file = boundary_value_files[key]
-                if value_file is None:
-                    continue
-                if not os.path.exists(value_file):
-                    raise ValueError(f"Boundary values file for '{key}' not found: {value_file}")
-                boundary_values[key] = _load_array(value_file).astype(float)
-                if boundary_values[key].shape != (H, W):
-                    raise ValueError(
-                        f"Boundary values '{key}' shape must be {(H, W)}, got {boundary_values[key].shape}"
-                    )
-            if len(boundary_values) == 0:
-                boundary_values = None
-
-        external_potential = None
-        potential_file = ms_params.pop("external_potential_file", None)
-        potential_gradient = ms_params.pop("external_potential_gradient", None)
-        if potential_file is not None and potential_gradient is not None:
-            raise ValueError("Use either external_potential_file or external_potential_gradient, not both.")
-        if potential_file is not None:
-            if not os.path.exists(potential_file):
-                raise ValueError(f"External potential file not found: {potential_file}")
-            external_potential = _load_array(potential_file).astype(float)
-            if external_potential.shape != (H, W):
-                raise ValueError(f"External potential shape must be {(H, W)}, got {external_potential.shape}")
-        elif potential_gradient is not None:
-            grad = np.asarray(potential_gradient, dtype=float)
-            if grad.shape != (2,):
+    boundary_values = None
+    boundary_value_files = params.get("boundary_values_files")
+    if boundary_value_files is not None:
+        boundary_values = {}
+        for key in ("xx", "yy", "xy"):
+            if key not in boundary_value_files:
+                continue
+            value_file = boundary_value_files[key]
+            if value_file is None:
+                continue
+            if not os.path.exists(value_file):
+                raise ValueError(f"Boundary values file for '{key}' not found: {value_file}")
+            boundary_values[key] = _load_array(value_file).astype(float)
+            if boundary_values[key].shape != (H, W):
                 raise ValueError(
-                    f"external_potential_gradient must be [dVdx, dVdy], got {potential_gradient}"
+                    f"Boundary values '{key}' shape must be {(H, W)}, got {boundary_values[key].shape}"
                 )
-            y_idx, x_idx = np.indices((H, W), dtype=float)
-            external_potential = grad[0] * x_idx + grad[1] * y_idx
+        if len(boundary_values) == 0:
+            boundary_values = None
 
-        if "regularization_weight" in ms_params and "regularisation_weight" not in ms_params:
-            ms_params["regularisation_weight"] = ms_params.pop("regularization_weight")
+    external_potential = None
+    potential_file = params.get("external_potential_file")
+    potential_gradient = params.get("external_potential_gradient")
+    if potential_file is not None and potential_gradient is not None:
+        raise ValueError("Use either external_potential_file or external_potential_gradient, not both.")
+    if potential_file is not None:
+        if not os.path.exists(potential_file):
+            raise ValueError(f"External potential file not found: {potential_file}")
+        external_potential = _load_array(potential_file).astype(float)
+        if external_potential.shape != (H, W):
+            raise ValueError(f"External potential shape must be {(H, W)}, got {external_potential.shape}")
+    elif potential_gradient is not None:
+        grad = np.asarray(potential_gradient, dtype=float)
+        if grad.shape != (2,):
+            raise ValueError(f"external_potential_gradient must be [dVdx, dVdy], got {potential_gradient}")
+        y_idx, x_idx = np.indices((H, W), dtype=float)
+        external_potential = grad[0] * x_idx + grad[1] * y_idx
 
-        initial_diff, initial_theta = (
-            photoelastimetry.optimiser.equilibrium_mean_stress.stress_to_principal_invariants(
-                initial_stress_map
-            )
-        )
+    optimise_params = {}
+    for key in (
+        "knot_spacing",
+        "spline_degree",
+        "boundary_weight",
+        "regularisation_weight",
+        "regularisation_order",
+        "max_iterations",
+        "tolerance",
+        "verbose",
+        "debug",
+    ):
+        if key in params:
+            optimise_params[key] = params[key]
 
-        bspline_wrapper, coeffs = photoelastimetry.optimiser.equilibrium_mean_stress.recover_mean_stress(
-            initial_diff,
-            initial_theta,
-            boundary_mask=boundary_mask,
-            boundary_values=boundary_values,
-            external_potential=external_potential,
-            initial_stress_map=initial_stress_map,
-            **ms_params,
-        )
+    if "regularization_weight" in params and "regularisation_weight" not in optimise_params:
+        optimise_params["regularisation_weight"] = params["regularization_weight"]
 
-        s_xx, s_yy, s_xy = bspline_wrapper.get_stress_fields(coeffs)
-        if external_potential is not None:
-            s_xx = s_xx + external_potential
-            s_yy = s_yy + external_potential
-        stress_map = np.stack([s_xx, s_yy, s_xy], axis=-1)
-    else:
-        raise ValueError(
-            "Solver type not recognized. Use 'stokes', 'intensity', 'global', or 'global_mean_stress'."
-        )
+    initial_diff, initial_theta = photoelastimetry.optimise.stress_to_principal_invariants(initial_stress_map)
+
+    bspline_wrapper, coeffs = photoelastimetry.optimise.recover_mean_stress(
+        initial_diff,
+        initial_theta,
+        boundary_mask=boundary_mask,
+        boundary_values=boundary_values,
+        external_potential=external_potential,
+        initial_stress_map=initial_stress_map,
+        **optimise_params,
+    )
+
+    s_xx, s_yy, s_xy = bspline_wrapper.get_stress_fields(coeffs)
+    if external_potential is not None:
+        s_xx = s_xx + external_potential
+        s_yy = s_yy + external_potential
+    stress_map = np.stack([s_xx, s_yy, s_xy], axis=-1)
 
     if params.get("output_filename") is not None:
         output_filename = params["output_filename"]

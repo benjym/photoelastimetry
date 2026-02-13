@@ -5,7 +5,7 @@ Tests for phase decomposed seeding method.
 import numpy as np
 import pytest
 
-from photoelastimetry.optimiser.stokes import predict_stokes
+from photoelastimetry.image import predict_stokes
 from photoelastimetry.seeding import invert_wrapped_retardance, resolve_fringe_orders
 
 # Params

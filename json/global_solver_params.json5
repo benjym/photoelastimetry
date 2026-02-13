@@ -9,22 +9,14 @@
     // input_filename : "images/test/disk_synthetic_images.tiff",
     input_filename : "images/elastic/boussinesq_synthetic_images.tiff",
 
-    // Solver selection
-    solver: "global",
-
-    global_solver: {
-    // Global Solver Configuration
-        knot_spacing: 2,       // Distance between B-spline knots in pixels
-        spline_degree: 3,       // Degree of B-spline surfaces
-        regularization_weight: 2000.0, // Penalty for coefficient oscillation (higher = smoother)
-        boundary_weight: 1.0,   // Weight for boundary condition enforcement
-
-        // Optional: Mask file for boundary conditions
-        // boundary_mask_file: "path/to/mask.tif",
-
-        max_iterations: 100,
-        tolerance: 1e0
-    },
+    // Optimise solver configuration (top-level)
+    knot_spacing: 2,       // Distance between B-spline knots in pixels
+    spline_degree: 3,      // Degree of B-spline surfaces
+    regularization_weight: 2000.0, // Penalty for coefficient oscillation (higher = smoother)
+    boundary_weight: 1.0,  // Weight for boundary condition enforcement
+    // boundary_mask_file: "path/to/mask.tif",
+    max_iterations: 100,
+    tolerance: 1e0,
 
     output_filename: "images/elastic/global_reconstruction.tiff",
 

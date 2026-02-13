@@ -86,10 +86,7 @@ nav:
           - io: reference/io.md
           - main: reference/main.md
           - plotting: reference/plotting.md
-      - Optimiser Modules:
-          - optimiser: reference/optimiser.md
-          - stokes: reference/stokes.md
-          - intensity: reference/intensity.md
-          - equilibrium: reference/equilibrium.md
+      - Solver Module:
+          - optimise: reference/optimise.md
   - Testing: testing.md
   - Contributing: contributing.md

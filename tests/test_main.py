@@ -20,29 +20,51 @@ from photoelastimetry import io, main
 class TestImageToStress:
     """Tests for image_to_stress function."""
 
+    @staticmethod
+    def _base_params(input_file):
+        return {
+            "input_filename": input_file,
+            "C": [3e-9, 3e-9, 3e-9],
+            "thickness": 0.01,
+            "wavelengths": [650, 550, 450],
+            "S_i_hat": [1.0, 0.0, 0.0],
+            "debug": False,
+        }
+
+    @pytest.fixture(autouse=True)
+    def _mock_optimise_pipeline(self):
+        with (
+            patch("photoelastimetry.main.photoelastimetry.seeding.phase_decomposed_seeding") as mock_seeding,
+            patch("photoelastimetry.main.photoelastimetry.optimise.recover_mean_stress") as mock_recover,
+        ):
+
+            def fake_seeding(image_stack, *_args, **_kwargs):
+                h, w = image_stack.shape[:2]
+                return np.ones((h, w, 3), dtype=float)
+
+            def fake_recover(delta_sigma_map, theta_map, **_kwargs):
+                h, w = delta_sigma_map.shape
+                fake_wrapper = MagicMock()
+                fake_wrapper.get_stress_fields.return_value = (
+                    np.full((h, w), 1.0),
+                    np.full((h, w), 2.0),
+                    np.full((h, w), 0.5),
+                )
+                return fake_wrapper, np.zeros(1)
+
+            mock_seeding.side_effect = fake_seeding
+            mock_recover.side_effect = fake_recover
+            yield mock_seeding, mock_recover
+
     def test_image_to_stress_with_input_filename(self):
         """Test image_to_stress with input_filename parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create synthetic input image (H, W, colors, angles)
             data = np.random.rand(1, 2, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
-            # Create params dict
-            params = {
-                "input_filename": input_file,
-                "C": 3e-9,
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0, 0.0],
-                "debug": False,
-                "solver": "intensity",
-            }
+            stress_map = main.image_to_stress(self._base_params(input_file))
 
-            # Run image_to_stress
-            stress_map = main.image_to_stress(params)
-
-            # Check output shape (should be 3D with stress components)
             assert stress_map.ndim == 3, "Stress map should be 3D"
             assert stress_map.shape[0] == 1, "Height should match input"
             assert stress_map.shape[1] == 2, "Width should match input"
@@ -51,54 +73,31 @@ class TestImageToStress:
     def test_image_to_stress_with_output_filename(self):
         """Test image_to_stress saves output when output_filename is provided."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create synthetic input image
             data = np.random.rand(2, 2, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             output_file = os.path.join(tmpdir, "test_output.tiff")
             io.save_image(input_file, data)
 
-            params = {
-                "input_filename": input_file,
-                "C": 3e-9,
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0],
-                "debug": False,
-                "output_filename": output_file,
-                "solver": "intensity",
-            }
-
+            params = self._base_params(input_file)
+            params["output_filename"] = output_file
+            params["S_i_hat"] = [1.0, 0.0]
             main.image_to_stress(params)
 
-            # Check that output file was created
             assert os.path.exists(output_file), "Output file should be created"
-
-            # Load and verify
-            loaded, metadata = io.load_image(output_file)
+            loaded, _ = io.load_image(output_file)
             assert loaded.shape == (2, 2, 3), "Output should be 3D stress tensor"
 
     def test_image_to_stress_with_crop(self):
         """Test image_to_stress with crop parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create synthetic input image
             data = np.random.rand(20, 20, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
-            params = {
-                "input_filename": input_file,
-                "crop": [5, 7, 5, 7],  # [x1, x2, y1, y2]
-                "C": 3e-9,
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0, 0.0],
-                "debug": False,
-                "solver": "intensity",
-            }
-
+            params = self._base_params(input_file)
+            params["crop"] = [5, 7, 5, 7]
             stress_map = main.image_to_stress(params)
 
-            # Check cropped dimensions
             assert stress_map.shape[0] == 2, "Cropped height should be 2"
             assert stress_map.shape[1] == 2, "Cropped width should be 2"
             assert stress_map.shape[2] == 3, "Should have 3 stress components"
@@ -106,25 +105,14 @@ class TestImageToStress:
     def test_image_to_stress_with_binning(self):
         """Test image_to_stress with binning parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create synthetic input image
             data = np.random.rand(12, 12, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
-            params = {
-                "input_filename": input_file,
-                "binning": 4,
-                "C": 3e-9,
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0, 0.0],
-                "debug": False,
-                "solver": "intensity",
-            }
-
+            params = self._base_params(input_file)
+            params["binning"] = 4
             stress_map = main.image_to_stress(params)
 
-            # Check binned dimensions (should be half)
             assert stress_map.shape[0] == 3, "Binned height should be 3"
             assert stress_map.shape[1] == 3, "Binned width should be 3"
             assert stress_map.shape[2] == 3, "Should have 3 stress components"
@@ -136,16 +124,8 @@ class TestImageToStress:
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
-            params = {
-                "input_filename": input_file,
-                "C": [3e-9, 3.5e-9, 2.5e-9],  # Different C for each wavelength
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0, 0.0],
-                "debug": False,
-                "solver": "intensity",
-            }
-
+            params = self._base_params(input_file)
+            params["C"] = [3e-9, 3.5e-9, 2.5e-9]
             stress_map = main.image_to_stress(params)
             assert stress_map.shape == (5, 5, 3), "Stress map shape should match"
 
@@ -162,98 +142,66 @@ class TestImageToStress:
         with pytest.raises(ValueError, match="Either 'folderName' or 'input_filename' must be specified"):
             main.image_to_stress(params)
 
-    def test_image_to_stress_with_n_jobs(self):
-        """Test image_to_stress with custom n_jobs parameter."""
+    def test_image_to_stress_with_n_jobs_is_ignored(self):
+        """n_jobs key should be ignored now that only optimise solver exists."""
         with tempfile.TemporaryDirectory() as tmpdir:
             data = np.random.rand(2, 2, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
-            params = {
-                "input_filename": input_file,
-                "C": 3e-9,
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0, 0.0],
-                "debug": False,
-                "n_jobs": 1,  # Use single core
-                "solver": "intensity",
-            }
-
+            params = self._base_params(input_file)
+            params["n_jobs"] = 1
             stress_map = main.image_to_stress(params)
-            assert stress_map.shape == (2, 2, 3), "Stress map should be computed"
+            assert stress_map.shape == (2, 2, 3)
 
-    @patch("photoelastimetry.main.photoelastimetry.optimiser.equilibrium_mean_stress.recover_mean_stress")
-    @patch("photoelastimetry.main.photoelastimetry.seeding.phase_decomposed_seeding")
-    def test_image_to_stress_global_mean_stress_solver(self, mock_seeding, mock_recover_mean_stress):
-        """Test image_to_stress with the global_mean_stress solver path."""
+    def test_image_to_stress_uses_flat_optimise_options(self, _mock_optimise_pipeline):
+        """Top-level optimise options should be passed to recover_mean_stress."""
+        _mock_seeding, mock_recover = _mock_optimise_pipeline
         with tempfile.TemporaryDirectory() as tmpdir:
             data = np.random.rand(2, 3, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
 
-            mock_seeding.return_value = np.ones((2, 3, 3), dtype=float)
+            params = self._base_params(input_file)
+            params["max_iterations"] = 1
+            params["regularization_weight"] = 0.25
+            params["boundary_weight"] = 2.0
 
-            s_xx = np.full((2, 3), 1.0)
-            s_yy = np.full((2, 3), 2.0)
-            s_xy = np.full((2, 3), 0.5)
-            fake_wrapper = MagicMock()
-            fake_wrapper.get_stress_fields.return_value = (s_xx, s_yy, s_xy)
-            mock_recover_mean_stress.return_value = (fake_wrapper, np.zeros(1))
+            main.image_to_stress(params)
+            kwargs = mock_recover.call_args.kwargs
+            assert kwargs["max_iterations"] == 1
+            assert kwargs["regularisation_weight"] == 0.25
+            assert kwargs["boundary_weight"] == 2.0
 
-            params = {
-                "input_filename": input_file,
-                "C": [3e-9, 3e-9, 3e-9],
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0, 0.0],
-                "debug": False,
-                "solver": "global_mean_stress",
-                "global_mean_stress": {"max_iterations": 1, "verbose": False},
-            }
-
-            stress_map = main.image_to_stress(params)
-
-            assert stress_map.shape == (2, 3, 3), "Stress map should have shape [H, W, 3]"
-            assert np.allclose(stress_map[:, :, 0], s_xx)
-            assert np.allclose(stress_map[:, :, 1], s_yy)
-            assert np.allclose(stress_map[:, :, 2], s_xy)
-            mock_recover_mean_stress.assert_called_once()
-
-    @patch("photoelastimetry.main.photoelastimetry.optimiser.equilibrium_mean_stress.recover_mean_stress")
-    @patch("photoelastimetry.main.photoelastimetry.seeding.phase_decomposed_seeding")
-    def test_image_to_stress_default_solver_is_global_mean_stress(
-        self, mock_seeding, mock_recover_mean_stress
-    ):
-        """If solver is omitted, image_to_stress should default to global_mean_stress."""
+    def test_image_to_stress_rejects_solver_key(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            data = np.random.rand(2, 3, 3, 4).astype(np.float32)
+            data = np.random.rand(2, 2, 3, 4).astype(np.float32)
             input_file = os.path.join(tmpdir, "test_input.tiff")
             io.save_image(input_file, data)
+            params = self._base_params(input_file)
+            params["solver"] = "global_mean_stress"
+            with pytest.raises(ValueError, match="`solver` is no longer supported"):
+                main.image_to_stress(params)
 
-            mock_seeding.return_value = np.ones((2, 3, 3), dtype=float)
-            fake_wrapper = MagicMock()
-            fake_wrapper.get_stress_fields.return_value = (
-                np.zeros((2, 3)),
-                np.zeros((2, 3)),
-                np.zeros((2, 3)),
-            )
-            mock_recover_mean_stress.return_value = (fake_wrapper, np.zeros(1))
+    def test_image_to_stress_rejects_global_mean_stress_block(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(2, 2, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+            params = self._base_params(input_file)
+            params["global_mean_stress"] = {"max_iterations": 1}
+            with pytest.raises(ValueError, match="Nested solver config blocks"):
+                main.image_to_stress(params)
 
-            params = {
-                "input_filename": input_file,
-                "C": [3e-9, 3e-9, 3e-9],
-                "thickness": 0.01,
-                "wavelengths": [650, 550, 450],
-                "S_i_hat": [1.0, 0.0, 0.0],
-                "debug": False,
-                # solver intentionally omitted
-                "global_mean_stress": {"max_iterations": 1, "verbose": False},
-            }
-
-            stress_map = main.image_to_stress(params)
-            assert stress_map.shape == (2, 3, 3)
-            mock_recover_mean_stress.assert_called_once()
+    def test_image_to_stress_rejects_global_solver_block(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(2, 2, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "test_input.tiff")
+            io.save_image(input_file, data)
+            params = self._base_params(input_file)
+            params["global_solver"] = {"max_iterations": 1}
+            with pytest.raises(ValueError, match="Nested solver config blocks"):
+                main.image_to_stress(params)
 
 
 class TestStressToImage:

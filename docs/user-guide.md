@@ -36,7 +36,8 @@ The JSON5 parameter file should contain:
 - `S_i_hat`: Incoming normalised Stokes vector [S1_hat, S2_hat, S3_hat] representing polarisation state
 - `crop` (optional): Crop region as [y1, y2, x1, x2]
 - `debug` (optional): If true, display all channels for debugging
-- `solver` (optional): One of `stokes`, `intensity`, `global`, `global_mean_stress` (default)
+- `seeding` (optional): Controls phase-decomposed seeding (`enabled`, `n_max`, `sigma_max`)
+- `knot_spacing`, `spline_degree`, `boundary_mask_file`, `boundary_values_files`, `boundary_weight`, `regularisation_weight` (`regularization_weight` alias), `regularisation_order`, `external_potential_file`, `external_potential_gradient`, `max_iterations`, `tolerance`, `verbose` (optional): Optimise solver settings
 
 **Example parameter file:**
 
@@ -121,36 +122,17 @@ demosaic-raw images/ --format png --all
 - `tiff`: Creates a single TIFF file with shape [H/4, W/4, 4, 4] containing all colour channels (R, G1, G2, B) and polarisation angles (0°, 45°, 90°, 135°)
 - `png`: Creates 4 PNG files (one per polarisation angle), each containing all colour channels as a composite image
 
-## Stress Analysis Methods
+## Stress Analysis Method
 
-The package provides three complementary approaches for stress field recovery:
+The package now uses a single solver path:
 
-### Stokes-based Solver
-
-Uses normalised Stokes components for pixel-wise stress inversion. This is deprecated and should not be used.
-
-- Module: `photoelastimetry.optimiser.stokes`
-
-### Intensity-based Solver
-
-Works directly with raw polarisation intensities for pixel-wise inversion. Only used for validation purposes.
-
-- Module: `photoelastimetry.optimiser.intensity`
-
-### Equilibrium Solver
-
-Global inversion that enforces mechanical equilibrium constraints using an Airy stress function. This is the recommended method for accurate stress recovery.
-
-- Best for: Cases where mechanical equilibrium is important
-- Module: `photoelastimetry.optimiser.equilibrium`
-
-### Mean-Stress Equilibrium Solver
+### Optimise Solver
 
 Global pressure recovery that keeps seeded deviatoric stress fixed and solves only for mean stress with equilibrium and optional boundary/potential constraints.
 
 - Best for: Workflows that trust seeding for `(σ1-σ2, θ)` and want stable pressure recovery
-- CLI solver key: `global_mean_stress`
-- Module: `photoelastimetry.optimiser.equilibrium_mean_stress`
+- Module: `photoelastimetry.optimise`
+- Note: `image-to-stress` always uses this solver; `solver`, `global_solver`, and `global_mean_stress` config keys are no longer supported.
 
 ## Photoelastic Theory
 
@@ -179,4 +161,4 @@ The package uses Mueller matrix calculus to model light propagation through the 
 2. **Image Quality**: Use high-quality, well-exposed images with minimal noise
 3. **Wavelength Selection**: Multiple wavelengths improve stress field resolution
 4. **Cropping**: Crop images to regions of interest to reduce computation time
-5. **Validation**: Compare results from different solver methods when possible
+5. **Validation**: Compare against known analytical/synthetic solutions when possible

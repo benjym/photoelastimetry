@@ -1,13 +1,8 @@
-"""
-Tests for the equilibrium mean-stress solver.
-"""
+"""Tests for the optimise solver."""
 
 import numpy as np
 
-from photoelastimetry.optimiser.equilibrium_mean_stress import (
-    recover_mean_stress,
-    stress_to_principal_invariants,
-)
+from photoelastimetry.optimise import recover_mean_stress, stress_to_principal_invariants
 
 
 def _wrap_half_pi(angle_diff):

@@ -10,50 +10,36 @@ You can generate a pre-set disk stress solution for validation using the paramet
 python photoelastimetry/generate/disk.py
 ```
 
-This can be inverted to recover the stress field using the standard solvers via
+Then invert with:
 
 ```bash
 image-to-stress json/test.json5
 ```
 
-## Example 2: Basic Stress Analysis
+## Example 2: Direct Optimise Solver Usage
 
-Analyze a set of photoelastic images to extract stress fields:
+If you already have a seeded stress map, you can run the optimise solver directly:
 
 ```python
-import photoelastimetry.image as image
-import photoelastimetry.optimiser.stokes as stokes_optimiser
 import numpy as np
+from photoelastimetry.optimise import recover_mean_stress, stress_to_principal_invariants
 
-# Load your polarimetric images (4 angles: 0°, 45°, 90°, 135°)
-I0 = np.load('image_0deg.npy')
-I45 = np.load('image_45deg.npy')
-I90 = np.load('image_90deg.npy')
-I135 = np.load('image_135deg.npy')
+# Seeded stress map shape [H, W, 3] ordered as [sigma_xx, sigma_yy, sigma_xy]
+initial_stress_map = np.load("seeded_stress.npy")
 
-# Compute Stokes components
-S0, S1, S2 = image.compute_stokes_components(I0, I45, I90, I135)
+delta_sigma, theta = stress_to_principal_invariants(initial_stress_map)
 
-# Normalise Stokes components
-S1_hat, S2_hat = image.compute_normalised_stokes(S0, S1, S2)
-S_normalised = np.stack([S1_hat, S2_hat], axis=0) # Shape depends on implementation, usually (3, H, W) or (H, W, 2)
-
-# Material properties
-C = 5e-11  # Stress-optic coefficient (1/Pa)
-t = 0.005  # Sample thickness (m)
-wavelength = 550e-9  # Wavelength (m)
-nu = 1.0  # Solid fraction
-S_i_hat = [1, 0] # Horizontal input polarisation
-
-# Recover stress field
-stress_map, residuals = stokes_optimiser.recover_stress_map_stokes(
-    S_normalised, [wavelength], [C], nu, t, S_i_hat
+wrapper, coeffs = recover_mean_stress(
+    delta_sigma,
+    theta,
+    knot_spacing=10,
+    max_iterations=200,
+    tolerance=1e-8,
+    verbose=True,
 )
 
-# Extract stress components
-sigma_xx = stress_map[..., 0]
-sigma_yy = stress_map[..., 1]
-sigma_xy = stress_map[..., 2]
+sigma_xx, sigma_yy, sigma_xy = wrapper.get_stress_fields(coeffs)
+stress_map = np.stack([sigma_xx, sigma_yy, sigma_xy], axis=-1)
 ```
 
 ## Example 3: Using Command Line Tools
@@ -65,7 +51,7 @@ sigma_xy = stress_map[..., 2]
 demosaic-raw raw_images/ --width 2448 --height 2048 --format png --all
 
 # Create a parameter file (params.json5)
-cat > params.json5 << EOF
+cat > params.json5 << EOF_JSON
 {
   "folderName": "./raw_images",
   "C": 5e-11,
@@ -73,73 +59,22 @@ cat > params.json5 << EOF
   "wavelengths": [450, 550, 650],
   "S_i_hat": [1.0, 0.0, 0.0],
   "crop": [200, 1800, 200, 2200],
+  "knot_spacing": 12,
+  "max_iterations": 150,
   "debug": false
 }
-EOF
+EOF_JSON
 
 # Run stress analysis
-image-to-stress params.json5 --output stress_field.png
+image-to-stress params.json5 --output stress_field.tiff
 ```
 
-## Example 4: Comparing Solver Methods
-
-Compare results from different stress inversion methods:
-
-```python
-import photoelastimetry.image as image
-import photoelastimetry.optimiser.intensity as intensity_optimiser
-import photoelastimetry.optimiser.stokes as stokes_optimiser
-
-# Using intensity-based method
-stress_intensity, _ = intensity_optimiser.recover_stress_map_intensity(
-    intensities, [wavelength], [C], nu, t, S_i_hat=[1, 0]
-)
-
-# Using Stokes-based method
-S0, S1, S2 = image.compute_stokes_components(I0, I45, I90, I135)
-S1_hat, S2_hat = image.compute_normalised_stokes(S0, S1, S2)
-S_norm = np.stack([S1_hat, S2_hat], axis=0)
-
-stress_stokes, _ = stokes_optimiser.recover_stress_map_stokes(
-    S_norm, [wavelength], [C], nu, t, S_i_hat=[1, 0]
-)
-```
-
-## Example 5: Global Equilibrium Solver
-
-Use the equilibrium-based solver for mechanical consistency:
-
-```python
-import photoelastimetry.optimiser.equilibrium as eq_optimiser
-import photoelastimetry.optimiser.stokes as stokes_optimiser
-
-# First get local solution
-stress_local, _ = stokes_optimiser.recover_stress_map_stokes(
-    S_normalised, [wavelength], [C], nu, t, S_i_hat=[1, 0]
-)
-
-# Grid spacing
-dx = 1e-4  # meters
-dy = 1e-4  # meters
-
-# Refine using equilibrium constraints
-stress_global = eq_optimiser.recover_stress_global(
-    stress_local, dx, dy, max_iter=1000
-)
-
-# Compare local vs global solutions
-# comparison = eq_optimiser.compare_local_vs_global(
-#     stress_local, stress_global, dx, dy
-# )
-```
-
-## Example 6: Forward Simulation
+## Example 4: Forward Simulation
 
 Generate synthetic photoelastic images from known stress fields:
 
 ```bash
-# Create parameter file for forward simulation
-cat > forward_params.json5 << EOF
+cat > forward_params.json5 << EOF_JSON
 {
   "stress_filename": "stress_field.npy",
   "thickness": 0.005,
@@ -149,9 +84,8 @@ cat > forward_params.json5 << EOF
   "scattering": 2.0,
   "output_filename": "synthetic_stack.tiff"
 }
-EOF
+EOF_JSON
 
-# Run forward simulation
 stress-to-image forward_params.json5
 ```
 
