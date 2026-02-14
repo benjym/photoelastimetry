@@ -4,7 +4,12 @@ Fit calibration profile values (`C`, `S_i_hat`, blank correction) from known-loa
 
 ## Prerequisites
 
-- Calibration image stack for each load step: shape `[H, W, n_wavelengths, 4]`
+- Calibration input for each load step can be either:
+  - a stack with shape `[H, W, n_wavelengths, 4]` (`.npy/.tiff/.tif`), or
+  - a single raw frame (`.raw`) plus nearby `recordingMetadata.json`
+- For raw-frame input:
+  - metadata is auto-loaded from `recordingMetadata.json`
+  - frame is demosaiced internally to `[H, W, 3, 4]` (RGB = `R, G1, B`)
 - At least 4 load steps total:
   - at least 1 no-load step (`load ~= 0`)
   - at least 3 non-zero load steps
@@ -74,4 +79,7 @@ calibrate-photoelastimetry calibration.json5
 - `Provide both dark_frame_file and blank_frame_file, or neither`:
   - specify both or remove both
 - Shape mismatch across calibration images:
-  - make all load-step images exactly the same shape
+  - make all load-step images exactly the same post-load shape
+  - for raw inputs, ensure all captures share dimensions and pixel format
+- Raw load step fails to decode:
+  - verify `recordingMetadata.json` exists near each raw frame and includes valid pixel metadata

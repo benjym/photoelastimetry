@@ -37,10 +37,22 @@
 ### File size mismatch
 
 - Verify width, height, dtype, and raw packing assumptions.
+- If available, prefer `recordingMetadata.json` so pixel format and dimensions are read from capture metadata.
 
 ### Unsupported `pixelFormat`
 
 - Use supported Bayer PFNC codes, or provide `--dtype` explicitly for manual decoding.
+
+### Mode/input mismatch
+
+- `Mode 'single' requires a .raw file input, not a directory`:
+  - switch to `--mode average` or `--mode series` for recording folders.
+- `Mode 'average' requires a directory input`:
+  - pass a recording directory containing `0000000/frame*.raw`.
+
+### Frame range selects no files
+
+- If you see `No .raw files selected after applying frame range...`, loosen `--start/--stop/--step`.
 
 ## calibration
 
@@ -51,10 +63,15 @@
 ### Error: image stack shape mismatch
 
 - Every calibration frame (all load steps, dark, blank) must have identical shape `[H, W, n_wavelengths, 4]`.
+- If using raw load-step frames, they are first demosaiced to `[H, W, 3, 4]`; all steps must match after this conversion.
 
 ### Error: incomplete dark/blank settings
 
 - Provide both `dark_frame_file` and `blank_frame_file`, or neither.
+
+### Raw calibration input errors
+
+- If a raw `image_file` fails with missing metadata, add/verify adjacent `recordingMetadata.json`.
 
 ## General Debug Checklist
 

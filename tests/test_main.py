@@ -790,12 +790,50 @@ class TestCLIFunctions:
             output_prefix=None,
             format="tiff",
             all=False,
+            mode="auto",
+            average_method="median",
+            start=None,
+            stop=None,
+            step=1,
         )
 
         main.cli_demosaic()
 
         # Verify demosaic was called once
         mock_demosaic.assert_called_once()
+
+    @patch("photoelastimetry.main.demosaic_raw_average")
+    @patch("photoelastimetry.main.demosaic_raw_image")
+    @patch("argparse.ArgumentParser.parse_args")
+    def test_cli_demosaic_recording_directory_processes_frame_folder(
+        self, mock_args, mock_demosaic, mock_demosaic_average
+    ):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            recording_dir = os.path.join(tmpdir, "recording")
+            frame_dir = os.path.join(recording_dir, "0000000")
+            os.makedirs(frame_dir, exist_ok=True)
+            Path(os.path.join(frame_dir, "frame0000000000.raw")).write_bytes(b"")
+            Path(os.path.join(frame_dir, "frame0000000001.raw")).write_bytes(b"")
+
+            mock_args.return_value = MagicMock(
+                input_file=recording_dir,
+                width=4096,
+                height=3000,
+                dtype="uint16",
+                output_prefix=None,
+                format="png",
+                all=False,
+                mode="auto",
+                average_method="median",
+                start=None,
+                stop=None,
+                step=1,
+            )
+
+            main.cli_demosaic()
+
+            mock_demosaic.assert_not_called()
+            mock_demosaic_average.assert_called_once()
 
     @patch("photoelastimetry.main.demosaic_raw_image")
     @patch("glob.glob")
@@ -817,6 +855,11 @@ class TestCLIFunctions:
                 output_prefix=None,
                 format="tiff",
                 all=True,
+                mode="auto",
+                average_method="median",
+                start=None,
+                stop=None,
+                step=1,
             )
             mock_glob.return_value = [file_a, file_b]
 
@@ -834,10 +877,78 @@ class TestCLIFunctions:
             output_prefix=None,
             format="tiff",
             all=True,
+            mode="auto",
+            average_method="median",
+            start=None,
+            stop=None,
+            step=1,
         )
 
         with pytest.raises(ValueError, match="input_file must be a directory"):
             main.cli_demosaic()
+
+    @patch("photoelastimetry.main.demosaic_raw_average")
+    @patch("argparse.ArgumentParser.parse_args")
+    def test_cli_demosaic_average_respects_frame_range(self, mock_args, mock_demosaic_average):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            recording_dir = os.path.join(tmpdir, "recording")
+            frame_dir = os.path.join(recording_dir, "0000000")
+            os.makedirs(frame_dir, exist_ok=True)
+            for i in range(4):
+                Path(os.path.join(frame_dir, f"frame{i:010d}.raw")).write_bytes(b"")
+
+            mock_args.return_value = MagicMock(
+                input_file=recording_dir,
+                width=4096,
+                height=3000,
+                dtype="uint16",
+                output_prefix=None,
+                format="tiff",
+                all=False,
+                mode="average",
+                average_method="median",
+                start=1,
+                stop=4,
+                step=2,
+            )
+
+            main.cli_demosaic()
+
+            selected_files = mock_demosaic_average.call_args.args[0]
+            assert len(selected_files) == 2
+            assert selected_files[0].endswith("frame0000000001.raw")
+            assert selected_files[1].endswith("frame0000000003.raw")
+
+    @patch("photoelastimetry.main.demosaic_raw_image")
+    @patch("argparse.ArgumentParser.parse_args")
+    def test_cli_demosaic_series_respects_frame_range(self, mock_args, mock_demosaic):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            recording_dir = os.path.join(tmpdir, "recording")
+            frame_dir = os.path.join(recording_dir, "0000000")
+            os.makedirs(frame_dir, exist_ok=True)
+            for i in range(3):
+                Path(os.path.join(frame_dir, f"frame{i:010d}.raw")).write_bytes(b"")
+
+            mock_args.return_value = MagicMock(
+                input_file=recording_dir,
+                width=4096,
+                height=3000,
+                dtype="uint16",
+                output_prefix=None,
+                format="png",
+                all=False,
+                mode="series",
+                average_method="median",
+                start=1,
+                stop=2,
+                step=1,
+            )
+
+            main.cli_demosaic()
+
+            assert mock_demosaic.call_count == 1
+            selected_input = mock_demosaic.call_args.args[0]
+            assert selected_input.endswith("frame0000000001.raw")
 
 
 class TestIntegrationWithRealData:

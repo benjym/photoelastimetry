@@ -1,0 +1,23 @@
+{
+  method: "brazilian_disk",
+  wavelengths: [650, 550, 450],
+  thickness: 0.01,
+  geometry: {
+    radius_m: 0.01,
+    center_px: [256, 256],
+    pixels_per_meter: 20000,
+    edge_margin_fraction: 0.9,
+    contact_exclusion_fraction: 0.12
+  },
+  load_steps: [
+    {load: 0.0, image_file:   "images/2025_04_15/2025_04_15_15_39_38_342/02002060_diskSaving1/0000000/frame0000000000.raw"},
+    {load: 150.0, image_file: "images/2025_04_15/2025_04_15_15_40_24_898/02002060_diskSaving1/0000000/frame0000000000.raw"},
+    {load: 300.0, image_file: "images/2025_04_15/2025_04_15_15_41_09_580/02002060_diskSaving1/0000000/frame0000000000.raw"},
+    {load: 450.0, image_file: "images/2025_04_15/2025_04_15_15_41_53_791/02002060_diskSaving1/0000000/frame0000000000.raw"}
+  ],
+//   dark_frame_file: "calib/dark.npy",
+//   blank_frame_file: "calib/blank.npy",
+  output_profile: "calib/profile.json5",
+  output_report: "calib/report.md",
+  output_diagnostics: "calib/diagnostics.npz"
+}

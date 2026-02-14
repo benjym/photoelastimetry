@@ -28,12 +28,12 @@ def test_split_channels_known_superpixel_mapping():
 
 
 @pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
-def test_read_raw_auto_detects_dtype(tmp_path, dtype):
+def test_read_raw_uses_explicit_dtype(tmp_path, dtype):
     arr = np.arange(36, dtype=dtype).reshape(6, 6)
     raw_file = tmp_path / f"frame_{dtype.__name__}.raw"
     arr.tofile(raw_file)
 
-    metadata = {"width": 6, "height": 6}
+    metadata = {"width": 6, "height": 6, "dtype": np.dtype(dtype).name}
     loaded = read_raw(str(raw_file), metadata)
 
     assert metadata["dtype"] == np.dtype(dtype).name
@@ -46,7 +46,16 @@ def test_read_raw_invalid_size_raises(tmp_path):
     raw_file.write_bytes(b"abc")
 
     with pytest.raises(ValueError, match="File size does not match expected size"):
-        read_raw(str(raw_file), {"width": 10, "height": 10})
+        read_raw(str(raw_file), {"width": 10, "height": 10, "dtype": "uint8"})
+
+
+def test_read_raw_missing_dtype_and_pixel_format_raises(tmp_path):
+    arr = np.arange(36, dtype=np.uint8).reshape(6, 6)
+    raw_file = tmp_path / "frame.raw"
+    arr.tofile(raw_file)
+
+    with pytest.raises(ValueError, match="must include either 'pixelFormat' or 'dtype'"):
+        read_raw(str(raw_file), {"width": 6, "height": 6})
 
 
 def test_read_raw_uses_pixel_format_bayer_rg8(tmp_path):
@@ -126,7 +135,9 @@ def test_load_raw_median_and_split_channels(tmp_path):
     frame_dir = root / "0000000"
     frame_dir.mkdir()
 
-    (root / "recordingMetadata.json").write_text(json.dumps({"width": 4, "height": 4}))
+    (root / "recordingMetadata.json").write_text(
+        json.dumps({"width": 4, "height": 4, "pixelFormat": 17301513})
+    )
 
     f0 = np.arange(16, dtype=np.uint8).reshape(4, 4)
     f1 = f0 + 2
@@ -155,6 +166,26 @@ def test_save_load_raw_round_trip(tmp_path):
     assert np.array_equal(loaded, arr)
     assert meta["width"] == 5
     assert meta["height"] == 5
+
+
+def test_load_image_raw_uses_recording_metadata_when_metadata_not_provided(tmp_path):
+    root = Path(tmp_path)
+    frame_dir = root / "recording" / "0000000"
+    frame_dir.mkdir(parents=True)
+
+    arr = np.arange(16, dtype=np.uint8).reshape(4, 4)
+    raw_file = frame_dir / "frame0000000000.raw"
+    arr.tofile(raw_file)
+
+    metadata = {"width": 4, "height": 4, "pixelFormat": 17301513}  # BayerRG8
+    (root / "recording" / "recordingMetadata.json").write_text(json.dumps(metadata))
+
+    loaded, meta = load_image(str(raw_file))
+
+    assert loaded.shape == (4, 4)
+    assert np.array_equal(loaded, arr)
+    assert meta["dtype"] == "uint8"
+    assert meta["pixelFormat"] == 17301513
 
 
 def test_save_load_tiff_4d_preserves_shape_and_values(tmp_path):

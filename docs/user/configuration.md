@@ -100,6 +100,19 @@ Optional:
 - `--output-prefix`
 - `--format` (`tiff` or `png`)
 - `--all` (recursive processing)
+- `--mode` (`auto`, `single`, `average`, `series`)
+- `--average-method` (`mean` or `median`)
+- `--start` (frame start index, inclusive)
+- `--stop` (frame stop index, exclusive)
+- `--step` (frame stride, default `1`)
+
+Notes:
+
+- `--mode auto` chooses:
+  - `single` for a `.raw` input file
+  - `average` for a recording directory
+- Recording directory mode expects `0000000/frame*.raw`.
+- Metadata is auto-loaded from `recordingMetadata.json` when available.
 
 ## calibrate-photoelastimetry Keys
 
@@ -123,3 +136,10 @@ Common optional keys:
 - `fit.initial_C`, `fit.initial_S_i_hat`
 - `fit.s3_identifiability_threshold`, `fit.prior_weight`, `fit.c_relative_bounds`
 - `output_profile`, `output_report`, `output_diagnostics`
+
+Load step input notes:
+
+- Each `load_steps[i].image_file` may be either:
+  - a demosaiced stack (`[H, W, n_wavelengths, 4]`), or
+  - a raw frame (`.raw`) with nearby `recordingMetadata.json`
+- Raw calibration inputs are demosaiced internally to `[H, W, 3, 4]` using channels `R, G1, B`.

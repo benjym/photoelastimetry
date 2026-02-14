@@ -1,5 +1,7 @@
 import argparse
+import json
 import os
+import re
 
 import json5
 import numpy as np
@@ -513,15 +515,18 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
     # Read raw image
     data = photoelastimetry.io.read_raw(input_file, metadata)
 
+    return demosaic_raw_data(
+        data, output_prefix=output_prefix or os.path.splitext(input_file)[0], output_format=output_format
+    )
+
+
+def demosaic_raw_data(data, output_prefix, output_format="tiff"):
+    """De-mosaic raw sensor data array and save outputs."""
     # De-mosaic into channels
     demosaiced = photoelastimetry.io.split_channels(data)
 
     # Keep only R, G1, B channels by removing G2
     demosaiced = demosaiced[:, :, [0, 1, 3], :]  # Keep R, G1, B
-
-    # Determine output filename prefix
-    if output_prefix is None:
-        output_prefix = os.path.splitext(input_file)[0]
 
     # Save based on format
     if output_format.lower() == "tiff":
@@ -551,6 +556,105 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
         raise ValueError(f"Unsupported output format: {output_format}. Use 'tiff' or 'png'.")
 
     return demosaiced
+
+
+def demosaic_raw_average(raw_files, metadata, output_prefix, output_format="tiff", average_method="median"):
+    """Average multiple raw frames, then de-mosaic once."""
+    if len(raw_files) == 0:
+        raise ValueError("No raw files provided for averaging.")
+
+    frames = [
+        np.asarray(photoelastimetry.io.read_raw(raw_file, metadata), dtype=np.float32)
+        for raw_file in raw_files
+    ]
+    stacked = np.stack(frames, axis=0)
+    if average_method == "mean":
+        averaged = np.mean(stacked, axis=0)
+    elif average_method == "median":
+        averaged = np.median(stacked, axis=0)
+    else:
+        raise ValueError(f"Unsupported average method: {average_method}. Use 'mean' or 'median'.")
+
+    return demosaic_raw_data(averaged, output_prefix=output_prefix, output_format=output_format)
+
+
+def _load_cli_or_recording_metadata(raw_file, cli_metadata):
+    """
+    Load metadata from recordingMetadata.json when available; otherwise return
+    CLI-provided metadata.
+    """
+    input_path = os.path.abspath(raw_file)
+    input_dir = input_path if os.path.isdir(input_path) else os.path.dirname(input_path)
+
+    candidates = [
+        os.path.join(input_dir, "recordingMetadata.json"),
+        os.path.join(os.path.dirname(input_dir), "recordingMetadata.json"),
+    ]
+    if not os.path.isdir(input_path):
+        candidates.append(
+            os.path.join(os.path.dirname(os.path.dirname(input_path)), "recordingMetadata.json")
+        )
+
+    for metadata_file in candidates:
+        if os.path.exists(metadata_file):
+            with open(metadata_file, "r") as f:
+                return json.load(f)
+    return dict(cli_metadata)
+
+
+def _resolve_recording_raw_files(recording_dir):
+    from glob import glob
+
+    frame_pattern = os.path.join(recording_dir, "0000000", "*.raw")
+    raw_files = sorted(glob(frame_pattern))
+    if len(raw_files) == 0:
+        raise ValueError(f"No .raw files found under expected frame folder: {frame_pattern}")
+    return raw_files
+
+
+def _frame_index_from_raw_filename(raw_file):
+    """Extract numeric frame index from filenames like frame0000000015.raw."""
+    match = re.match(r"^frame(\d+)\.raw$", os.path.basename(raw_file))
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _apply_frame_range(raw_files, start=None, stop=None, step=1):
+    """
+    Filter raw files by frame range.
+
+    If all files match frameNNN.raw, filtering is done by numeric frame index.
+    Otherwise, Python slicing by sorted file order is used.
+    """
+    if step <= 0:
+        raise ValueError(f"step must be a positive integer. Got {step}.")
+
+    if start is None and stop is None and step == 1:
+        return raw_files
+
+    indexed = [(raw_file, _frame_index_from_raw_filename(raw_file)) for raw_file in raw_files]
+    has_numeric_indices = all(index is not None for _, index in indexed)
+
+    if has_numeric_indices:
+        selected = []
+        base = start if start is not None else 0
+        for raw_file, index in indexed:
+            if start is not None and index < start:
+                continue
+            if stop is not None and index >= stop:
+                continue
+            if (index - base) % step != 0:
+                continue
+            selected.append(raw_file)
+    else:
+        selected = raw_files[slice(start, stop, step)]
+
+    if len(selected) == 0:
+        raise ValueError(
+            f"No .raw files selected after applying frame range start={start}, stop={stop}, step={step}."
+        )
+    return selected
 
 
 def cli_demosaic():
@@ -598,6 +702,38 @@ def cli_demosaic():
         action="store_true",
         help="Recursively process all .raw files in the input directory and subdirectories.",
     )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="auto",
+        choices=["auto", "single", "average", "series"],
+        help="Processing mode. 'auto' chooses single for a file, average for a recording directory.",
+    )
+    parser.add_argument(
+        "--average-method",
+        type=str,
+        default="median",
+        choices=["mean", "median"],
+        help="Method used when --mode average (default: median).",
+    )
+    parser.add_argument(
+        "--start",
+        type=int,
+        default=None,
+        help="Start frame index (inclusive).",
+    )
+    parser.add_argument(
+        "--stop",
+        type=int,
+        default=None,
+        help="Stop frame index (exclusive).",
+    )
+    parser.add_argument(
+        "--step",
+        type=int,
+        default=1,
+        help="Frame step for selection (default: 1).",
+    )
     args = parser.parse_args()
 
     metadata = {
@@ -607,7 +743,14 @@ def cli_demosaic():
     if args.dtype:
         metadata["dtype"] = args.dtype
 
+    def ensure_parent_dir(path):
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
     if args.all:
+        if args.mode == "average":
+            raise ValueError("--mode average is not supported with --all.")
         # Process all raw files recursively
         if not os.path.isdir(args.input_file):
             raise ValueError(f"When using --all flag, input_file must be a directory. Got: {args.input_file}")
@@ -615,11 +758,12 @@ def cli_demosaic():
         # Find all .raw files recursively
         from glob import glob
 
-        raw_files = glob(os.path.join(args.input_file, "**", "*.raw"), recursive=True)
+        raw_files = sorted(glob(os.path.join(args.input_file, "**", "*.raw"), recursive=True))
 
         if len(raw_files) == 0:
             print(f"No .raw files found in {args.input_file}")
             return
+        raw_files = _apply_frame_range(raw_files, start=args.start, stop=args.stop, step=args.step)
 
         print(f"Found {len(raw_files)} .raw files to process")
 
@@ -628,10 +772,54 @@ def cli_demosaic():
 
         for raw_file in tqdm(raw_files, desc="Processing raw files"):
             try:
-                demosaic_raw_image(raw_file, metadata, args.output_prefix, args.format)
+                file_metadata = _load_cli_or_recording_metadata(raw_file, metadata)
+                demosaic_raw_image(raw_file, file_metadata, args.output_prefix, args.format)
             except Exception as e:
                 print(f"Error processing {raw_file}: {e}")
                 continue
     else:
-        # Process single file
-        demosaic_raw_image(args.input_file, metadata, args.output_prefix, args.format)
+        # Process either a single raw file or one recording directory.
+        if os.path.isdir(args.input_file):
+            recording_dir = os.path.abspath(args.input_file)
+            raw_files = _resolve_recording_raw_files(recording_dir)
+            raw_files = _apply_frame_range(raw_files, start=args.start, stop=args.stop, step=args.step)
+            mode = args.mode if args.mode != "auto" else "average"
+
+            if mode == "single":
+                raise ValueError("Mode 'single' requires a .raw file input, not a directory.")
+            if mode == "average":
+                file_metadata = _load_cli_or_recording_metadata(raw_files[0], metadata)
+                output_prefix = args.output_prefix or os.path.join(recording_dir, "average", "demosaiced")
+                ensure_parent_dir(output_prefix)
+                demosaic_raw_average(
+                    raw_files,
+                    metadata=file_metadata,
+                    output_prefix=output_prefix,
+                    output_format=args.format,
+                    average_method=args.average_method,
+                )
+            elif mode == "series":
+                from tqdm import tqdm
+
+                output_dir = os.path.join(recording_dir, "series")
+                os.makedirs(output_dir, exist_ok=True)
+                for raw_file in tqdm(raw_files, desc="Processing raw files"):
+                    file_metadata = _load_cli_or_recording_metadata(raw_file, metadata)
+                    stem = os.path.splitext(os.path.basename(raw_file))[0]
+                    output_prefix = (
+                        f"{args.output_prefix}_{stem}"
+                        if args.output_prefix
+                        else os.path.join(output_dir, stem)
+                    )
+                    ensure_parent_dir(output_prefix)
+                    demosaic_raw_image(raw_file, file_metadata, output_prefix, args.format)
+            else:
+                raise ValueError(f"Unsupported mode for directory input: {mode}")
+        else:
+            mode = args.mode if args.mode != "auto" else "single"
+            if mode == "average":
+                raise ValueError("Mode 'average' requires a directory input.")
+            if args.start is not None or args.stop is not None or args.step != 1:
+                raise ValueError("Frame range options (--start/--stop/--step) require a directory input.")
+            file_metadata = _load_cli_or_recording_metadata(args.input_file, metadata)
+            demosaic_raw_image(args.input_file, file_metadata, args.output_prefix, args.format)

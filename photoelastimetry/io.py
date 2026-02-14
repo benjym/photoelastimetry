@@ -72,6 +72,7 @@ def read_raw(filename, metadata):
         expected_file_size = width * height * pixel_spec["bytes_per_pixel"]
         if actual_file_size != expected_file_size:
             raise ValueError(
+                f"Attempting to read {filename} with pixelFormat={pixel_spec['name']} (code {pixel_format} / 0x{pixel_format:08X}), "
                 f"File size does not match expected size for {pixel_spec['name']} "
                 f"({pixel_spec['bit_depth']}-bit). Got {actual_file_size} bytes, "
                 f"expected {expected_file_size} bytes for {width}x{height}."
@@ -89,18 +90,7 @@ def read_raw(filename, metadata):
             )
         metadata["dtype"] = dtype.name
     else:
-        # Backward-compatible fallback when pixelFormat is unavailable.
-        eight_bit_file_size = width * height
-        if actual_file_size == eight_bit_file_size:
-            metadata["dtype"] = "uint8"
-        elif actual_file_size == eight_bit_file_size * 2:
-            metadata["dtype"] = "uint16"
-        else:
-            raise ValueError(
-                f"File size does not match expected size for 8bit or 16bit data. "
-                f"Got {actual_file_size} bytes, expected {eight_bit_file_size} or "
-                f"{eight_bit_file_size * 2} bytes for {width}x{height}."
-            )
+        raise ValueError("Raw metadata must include either 'pixelFormat' or 'dtype'.")
 
     return np.memmap(filename, dtype=metadata["dtype"], mode="r", shape=(height, width))
 
@@ -297,6 +287,19 @@ def load_image(filename, metadata=None):
     if filename.endswith(".npy"):
         data = np.load(filename)
     elif filename.endswith(".raw"):
+        if metadata is None:
+            raw_path = os.path.abspath(filename)
+            raw_dir = os.path.dirname(raw_path)
+            candidates = [
+                os.path.join(raw_dir, "recordingMetadata.json"),
+                os.path.join(os.path.dirname(raw_dir), "recordingMetadata.json"),
+                os.path.join(os.path.dirname(os.path.dirname(raw_path)), "recordingMetadata.json"),
+            ]
+            for metadata_file in candidates:
+                if os.path.exists(metadata_file):
+                    with open(metadata_file, "r") as f:
+                        metadata = json.load(f)
+                    break
         data = np.array(read_raw(filename, metadata))
     elif filename.endswith(".png") or filename.endswith(".jpg") or filename.endswith(".jpeg"):
         import matplotlib.pyplot as plt

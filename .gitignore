@@ -6,6 +6,7 @@ venv/
 site/
 .cache/
 *.pkl
+__pycache__/
 
 # Testing and coverage
 .pytest_cache/
@@ -33,3 +34,4 @@ dist/
 papers/*.png
 papers/*.pdf
 images/
+calib/

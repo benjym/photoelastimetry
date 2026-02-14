@@ -436,6 +436,12 @@ def _coupon_stress_at_points(load, thickness, geometry, n_points):
 def _load_and_validate_image(path, expected_shape=None):
     """Load an image stack and validate expected dimensions."""
     data, _ = photoelastimetry.io.load_image(path)
+    # Support raw 2D Bayer+polarisation frames by demosaicing to [H, W, C, 4].
+    if data.ndim == 2:
+        data = photoelastimetry.io.split_channels(data)
+        if data.shape[2] == 4:
+            # Keep R, G1, B to match the standard 3-wavelength processing pipeline.
+            data = data[:, :, [0, 1, 3], :]
     data = np.asarray(data, dtype=float)
 
     if data.ndim != 4 or data.shape[-1] != 4:
