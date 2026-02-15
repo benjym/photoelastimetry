@@ -6,18 +6,28 @@ This script generates synthetic images for a strip load stress field and then
 attempts to recover the stress field using the global equilibrium solver.
 """
 
+import os
+import shutil
+
 import matplotlib.pyplot as plt
 import numpy as np
+from plot_config import configure_plots
 
 from photoelastimetry.generate.strip_load import generate_synthetic_strip_load
 from photoelastimetry.optimise import recover_mean_stress
 from photoelastimetry.seeding import phase_decomposed_seeding
 from photoelastimetry.visualisation import print_boundary_conditions
 
+configure_plots()
+
+cb_fraction = 0.2
+cb_pad = 0.04
+cb_shrink = 1.0
+
 # Parameters
 width_m = 0.1  # 10 cm width (from -0.05 to 0.05)
 height_m = 0.05  # 5 cm depth
-resolution = 200  # pixels/m
+resolution = 2000  # pixels/m
 W = int(width_m * resolution)
 H = int(height_m * resolution)
 
@@ -83,7 +93,7 @@ print("Initial stress guess computed.")
 
 # Run Global Solver
 print("\nRunning Global Solver...")
-knot_spacing = 5
+knot_spacing = 1
 
 # Define boundary condition mask
 boundary_mask = np.zeros((H, W), dtype=bool)
@@ -92,18 +102,14 @@ boundary_mask[:, 0] = True  # Left
 boundary_mask[:, -1] = True  # Right
 boundary_mask[-1, :] = True  # Bottom
 
-# Use TRUE stress values for boundaries
-b_xx = true_sxx.copy()
-b_yy = true_syy.copy()
-b_xy = true_txy.copy()
+# Use true stresses on the boundary only; keep interior unconstrained.
+b_xx = np.full((H, W), np.nan)
+b_yy = np.full((H, W), np.nan)
+b_xy = np.full((H, W), np.nan)
 
-# free on top surface
-b_yy[:, :] = np.nan
-b_xx[:, :] = np.nan
-b_xy[:, :] = np.nan
-# b_yy[1:-1, 0] = np.nan  # Left side (excluding corners)
-# b_yy[1:-1, -1] = np.nan  # Right side (excluding corners)
-# b_xx[:, :] = np.nan
+b_xx[boundary_mask] = true_sxx[boundary_mask]
+b_yy[boundary_mask] = true_syy[boundary_mask]
+b_xy[boundary_mask] = true_txy[boundary_mask]
 
 boundary_values = {
     "xx": b_xx,
@@ -130,7 +136,7 @@ recovered_mean_stress = recover_mean_stress(
     knot_spacing=knot_spacing,
     spline_degree=3,
     boundary_mask=boundary_mask,
-    boundary_weight=1e6,
+    boundary_weight=1e1,
     regularisation_weight=0,
     external_potential=V_potential,
     boundary_values=boundary_values,
@@ -151,126 +157,156 @@ rec_syy = rec_syy_airy + V_potential
 
 # Plotting
 print("Plotting results...")
-fig, axes = plt.subplots(4, 5, figsize=(15, 12), layout="constrained")
+fig, axes = plt.subplots(5, 3, figsize=(6.04, 4.6), constrained_layout=True)
 
 # Common scaling for stress maps
 max_stress = max(np.max(np.abs(true_sxx)), np.max(np.abs(true_syy)))
 
-# Row 1: Ground Truth
-plt.sca(axes[0, 0])
-plt.imshow(true_sxx, cmap="RdBu_r")
-plt.title("True Sigma XX")
-plt.colorbar()
-
-plt.sca(axes[0, 1])
-plt.imshow(true_syy, cmap="RdBu_r")
-plt.title("True Sigma YY")
-plt.colorbar()
-
-plt.sca(axes[0, 2])
-plt.imshow(true_txy, cmap="RdBu_r", vmin=-np.max(np.abs(true_txy)), vmax=np.max(np.abs(true_txy)))
-plt.title("True Tau XY")
-plt.colorbar()
-
-plt.sca(axes[0, 3])
-plt.imshow(true_diff, cmap="viridis")
-plt.title("True Principal Diff")
-plt.colorbar()
-
-plt.sca(axes[0, 4])
-plt.imshow(true_theta, cmap="hsv", vmin=-np.pi / 2, vmax=np.pi / 2)
-plt.title("True Principal Angle")
-plt.colorbar()
-
-# Row 2: Initial Guess
-plt.sca(axes[1, 0])
-plt.imshow(initial_stress[:, :, 0], cmap="RdBu_r")
-plt.title("Initial Guess Sigma XX")
-plt.colorbar()
-
-plt.sca(axes[1, 1])
-plt.imshow(initial_stress[:, :, 1], cmap="RdBu_r")
-plt.title("Initial Guess Sigma YY")
-plt.colorbar()
-
-plt.sca(axes[1, 2])
-plt.imshow(initial_stress[:, :, 2], cmap="RdBu_r")
-plt.title("Initial Guess Tau XY")
-plt.colorbar()
-
-plt.sca(axes[1, 3])
-plt.imshow(initial_diff, cmap="viridis")
-plt.title("Initial Guess Principal Diff")
-plt.colorbar()
-
-plt.sca(axes[1, 4])
-plt.imshow(initial_theta, cmap="hsv", vmin=-np.pi / 2, vmax=np.pi / 2)
-plt.title("Initial Guess Principal Angle")
-plt.colorbar()
-
-# Row 3: Recovered
-plt.sca(axes[2, 0])
-plt.imshow(
-    rec_sxx,
-    cmap="RdBu_r",
-)
-plt.title("Recovered Sigma XX")
-plt.colorbar()
-
-plt.sca(axes[2, 1])
-plt.imshow(
-    rec_syy,
-    cmap="RdBu_r",
-)
-plt.title("Recovered Sigma YY")
-plt.colorbar()
-
-plt.sca(axes[2, 2])
-plt.imshow(rec_txy, cmap="RdBu_r", vmin=-np.max(np.abs(rec_txy)), vmax=np.max(np.abs(rec_txy)))
-plt.title("Recovered Tau XY")
-plt.colorbar()
-
-plt.sca(axes[2, 3])
 recovered_diff = np.sqrt((rec_sxx - rec_syy) ** 2 + 4 * rec_txy**2)
-plt.imshow(recovered_diff, cmap="viridis")
-plt.title("Recovered Principal Diff")
-plt.colorbar()
-
-plt.sca(axes[2, 4])
 recovered_theta = 0.5 * np.arctan2(2 * rec_txy, rec_sxx - rec_syy)
-plt.imshow(recovered_theta, cmap="hsv", vmin=-np.pi / 2, vmax=np.pi / 2)
-plt.title("Recovered Principal Angle")
-plt.colorbar()
-
-# Row 4: Error Maps
 error_sxx = rec_sxx - true_sxx
-plt.sca(axes[3, 0])
-plt.imshow(error_sxx, cmap="RdBu_r")
-plt.title("Error Sigma XX")
-plt.colorbar()
-
 error_syy = rec_syy - true_syy
-plt.sca(axes[3, 1])
-plt.imshow(error_syy, cmap="RdBu_r")
-plt.title("Error Sigma YY")
-plt.colorbar()
-
 error_tau = rec_txy - true_txy
-plt.sca(axes[3, 2])
-plt.imshow(error_tau, cmap="RdBu_r", vmin=-np.max(np.abs(error_tau)), vmax=np.max(np.abs(error_tau)))
-plt.title("Error Tau XY")
-plt.colorbar()
-
 error_diff = recovered_diff - true_diff
-plt.sca(axes[3, 3])
-plt.imshow(error_diff, cmap="viridis", vmin=-np.max(np.abs(error_diff)), vmax=np.max(np.abs(error_diff)))
-plt.title("Error Principal Diff")
-plt.colorbar()
+error_theta = recovered_theta - true_theta
 
-plt.sca(axes[3, 4])
-plt.imshow(recovered_theta - true_theta, cmap="hsv", vmin=-np.pi / 2, vmax=np.pi / 2)
-plt.title("Error Principal Angle")
-plt.colorbar()
+print(
+    "Mean errors [Pa]: "
+    f"xx={np.nanmean(error_sxx):.3e}, yy={np.nanmean(error_syy):.3e}, "
+    f"tau={np.nanmean(error_tau):.3e}, dSigma={np.nanmean(error_diff):.3e}"
+)
+print(
+    "Std errors  [Pa]: "
+    f"xx={np.nanstd(error_sxx):.3e}, yy={np.nanstd(error_syy):.3e}, "
+    f"tau={np.nanstd(error_tau):.3e}, dSigma={np.nanstd(error_diff):.3e}"
+)
+print(
+    "Boundary MAE [Pa]: "
+    f"xx={np.nanmean(np.abs(error_sxx[boundary_mask])):.3e}, "
+    f"yy={np.nanmean(np.abs(error_syy[boundary_mask])):.3e}"
+)
 
-plt.savefig("papers/validate_strip_load.png", dpi=300)
-print("Saved plot to papers/validate_strip_load.png")
+# Columns: true / recovered / error
+# Row 1: sigma_xx
+im0 = axes[0, 0].imshow(true_sxx, cmap="inferno", vmin=0, vmax=max_stress)
+cb = fig.colorbar(im0, ax=axes[0, 0], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\sigma_{xx}$ (Pa)")
+
+im1 = axes[0, 1].imshow(rec_sxx, cmap="inferno", vmin=0, vmax=max_stress)
+cb = fig.colorbar(im1, ax=axes[0, 1], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\sigma_{xx}$ (Pa)")
+
+im2 = axes[0, 2].imshow(error_sxx, cmap="inferno")
+cb = fig.colorbar(im2, ax=axes[0, 2], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label("$\\sigma_{xx}$ error\n(Pa)")
+cb.ax.yaxis.label.set_multialignment("center")
+
+# Row 2: sigma_yy
+im3 = axes[1, 0].imshow(true_syy, cmap="inferno", vmin=0, vmax=max_stress)
+cb = fig.colorbar(im3, ax=axes[1, 0], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\sigma_{yy}$ (Pa)")
+
+im4 = axes[1, 1].imshow(rec_syy, cmap="inferno", vmin=0, vmax=max_stress)
+cb = fig.colorbar(im4, ax=axes[1, 1], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\sigma_{yy}$ (Pa)")
+
+im5 = axes[1, 2].imshow(error_syy, cmap="inferno")
+cb = fig.colorbar(im5, ax=axes[1, 2], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label("$\\sigma_{yy}$ error\n(Pa)")
+cb.ax.yaxis.label.set_multialignment("center")
+
+# Row 3: tau_xy
+im6 = axes[2, 0].imshow(true_txy, cmap="inferno")
+cb = fig.colorbar(im6, ax=axes[2, 0], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\tau_{xy}$ (Pa)")
+
+im7 = axes[2, 1].imshow(rec_txy, cmap="inferno")
+cb = fig.colorbar(im7, ax=axes[2, 1], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\tau_{xy}$ (Pa)")
+
+tau_err_scale = 1e-14
+im8 = axes[2, 2].imshow(error_tau / tau_err_scale, cmap="inferno")
+cb = fig.colorbar(im8, ax=axes[2, 2], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label("$\\tau_{xy}$ error\n($10^{-14}$ Pa)")
+cb.ax.yaxis.label.set_multialignment("center")
+
+# Row 4: principal difference
+im9 = axes[3, 0].imshow(true_diff, cmap="inferno")
+cb = fig.colorbar(im9, ax=axes[3, 0], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\Delta\sigma$ (Pa)")
+
+im10 = axes[3, 1].imshow(recovered_diff, cmap="inferno")
+cb = fig.colorbar(im10, ax=axes[3, 1], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label(r"$\Delta\sigma$ (Pa)")
+
+diff_err_scale = 1e-14
+im11 = axes[3, 2].imshow(error_diff / diff_err_scale, cmap="inferno")
+cb = fig.colorbar(im11, ax=axes[3, 2], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink)
+cb.set_label("$\\Delta\\sigma$ error\n($10^{-14}$ Pa)")
+cb.ax.yaxis.label.set_multialignment("center")
+
+# Row 5: principal angle
+im12 = axes[4, 0].imshow(true_theta, cmap="twilight", vmin=-np.pi / 2, vmax=np.pi / 2)
+cb = fig.colorbar(
+    im12, ax=axes[4, 0], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink, ticks=[-np.pi / 2, 0, np.pi / 2]
+)
+cb.set_label(r"$\theta$ (rad)")
+cb.ax.set_yticklabels([r"$-\pi/2$", "0", r"$\pi/2$"])
+
+im13 = axes[4, 1].imshow(recovered_theta, cmap="twilight", vmin=-np.pi / 2, vmax=np.pi / 2)
+cb = fig.colorbar(
+    im13, ax=axes[4, 1], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink, ticks=[-np.pi / 2, 0, np.pi / 2]
+)
+cb.set_label(r"$\theta$ (rad)")
+cb.ax.set_yticklabels([r"$-\pi/2$", "0", r"$\pi/2$"])
+
+im14 = axes[4, 2].imshow(error_theta, cmap="twilight", vmin=-np.pi / 2, vmax=np.pi / 2)
+cb = fig.colorbar(
+    im14, ax=axes[4, 2], fraction=cb_fraction, pad=cb_pad, shrink=cb_shrink, ticks=[-np.pi / 2, 0, np.pi / 2]
+)
+cb.set_label("$\\theta$ err\n(rad)")
+cb.ax.yaxis.label.set_multialignment("center")
+cb.ax.set_yticklabels([r"$-\pi/2$", "0", r"$\pi/2$"])
+
+panel_labels = [
+    "(a)",
+    "(b)",
+    "(c)",
+    "(d)",
+    "(e)",
+    "(f)",
+    "(g)",
+    "(h)",
+    "(i)",
+    "(j)",
+    "(k)",
+    "(l)",
+    "(m)",
+    "(n)",
+    "(o)",
+]
+
+for idx, ax in enumerate(axes.ravel()):
+    ax.text(-0.15, 1.15, panel_labels[idx], transform=ax.transAxes)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+# Keep ticks only on bottom-left panel
+axes[4, 0].set_xticks([1, W])
+axes[4, 0].set_yticks([1, H])
+axes[4, 0].set_xlabel("Width (px)")
+axes[4, 0].set_ylabel("Height (px)")
+
+plt.savefig("papers/validate_strip_load.pdf", dpi=300)
+print("Saved plot to papers/validate_strip_load.pdf")
+
+try:
+    shutil.copy(
+        "papers/validate_strip_load.pdf",
+        os.path.expanduser(
+            "~/Dropbox/Apps/Overleaf/RGB Granular Photoelasticity/images/validate_strip_load.pdf"
+        ),
+    )
+    print("Copied to Dropbox")
+except Exception as e:
+    print(f"Could not copy to dropbox: {e}")

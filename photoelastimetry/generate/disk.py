@@ -69,7 +69,7 @@ def diametrical_stress_cartesian(X, Y, P, R):
 
 
 def generate_synthetic_brazil_test(
-    X, Y, P, R, S_i_hat, mask, wavelengths_nm, thickness, C, polarisation_efficiency
+    X, Y, P, R, S_i_hat, mask, wavelengths, thickness, C, polarisation_efficiency
 ):
     """
     Generate synthetic Brazil test data for validation
@@ -105,7 +105,7 @@ def generate_synthetic_brazil_test(
     # S_i_hat = np.array([0.0, 0.0, 1.0])
     nu = 1.0  # Solid sample
 
-    for i, lambda_light in tqdm(enumerate(wavelengths_nm)):
+    for i, lambda_light in tqdm(enumerate(wavelengths)):
         # Generate four-step polarimetry images using Mueller matrix approach
         I0_pol, I45_pol, I90_pol, I135_pol = simulate_four_step_polarimetry(
             sigma_xx, sigma_yy, tau_xy, C[i], nu, thickness, lambda_light, S_i_hat

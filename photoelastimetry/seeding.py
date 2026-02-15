@@ -59,9 +59,11 @@ def invert_wrapped_retardance(S_m_hat, S_i_hat):
 
         # Sum vectors over wavelengths for robustness
         # Note: arctan2(y, x). y ~ sin(2theta), x ~ cos(2theta)
+        # S1 ~ sin(2theta), S2 ~ -cos(2theta)
+        # => x (cos) ~ -S2, y (sin) ~ S1
 
-        x_sum = np.sum(s2 * S3_in, axis=-1)
-        y_sum = np.sum(-s1 * S3_in, axis=-1)
+        x_sum = np.sum(-s2 * S3_in, axis=-1)
+        y_sum = np.sum(s1 * S3_in, axis=-1)
         theta = 0.5 * np.arctan2(y_sum, x_sum)
 
         # Calculate delta (wrapped)
@@ -455,7 +457,8 @@ def phase_decomposed_seeding(
 
         # For stress tensor initialization (uses 2*theta), unwrapping is not strictly needed.
         unwrapped_theta = theta
-    else:
+    # else:
+    if correction_params and correction_params.get("unwrap_angles", False):
         # Unwrap angles
         unwrapped_theta = unwrap_angles_graph_cut(theta, quality=delta_sigma)
 
