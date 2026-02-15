@@ -457,9 +457,10 @@ def phase_decomposed_seeding(
 
         # For stress tensor initialization (uses 2*theta), unwrapping is not strictly needed.
         unwrapped_theta = theta
-    # else:
+    else:
+        unwrapped_theta = unwrap_angles_graph_cut(theta, quality=delta_sigma)
+
     if correction_params and correction_params.get("unwrap_angles", False):
-        # Unwrap angles
         unwrapped_theta = unwrap_angles_graph_cut(theta, quality=delta_sigma)
 
     # Apply disorder correction if enabled

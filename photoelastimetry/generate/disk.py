@@ -69,13 +69,36 @@ def diametrical_stress_cartesian(X, Y, P, R):
 
 
 def generate_synthetic_brazil_test(
-    X, Y, P, R, S_i_hat, mask, wavelengths, thickness, C, polarisation_efficiency
+    X,
+    Y,
+    P,
+    R,
+    S_i_hat,
+    mask,
+    wavelengths=None,
+    thickness=None,
+    C=None,
+    polarisation_efficiency=1.0,
+    **kwargs,
 ):
     """
     Generate synthetic Brazil test data for validation
     This function creates a synthetic dataset based on the analytical solution
     and saves it in a format suitable for testing.
     """
+
+    # Backward compatibility: older callers used keyword `wavelengths_nm`
+    if wavelengths is None:
+        wavelengths = kwargs.pop("wavelengths_nm", None)
+    elif "wavelengths_nm" in kwargs:
+        raise TypeError("Pass only one of `wavelengths` or `wavelengths_nm`, not both.")
+
+    if kwargs:
+        unexpected = ", ".join(sorted(kwargs.keys()))
+        raise TypeError(f"Unexpected keyword argument(s): {unexpected}")
+
+    if wavelengths is None:
+        raise TypeError("Missing required wavelength input: pass `wavelengths` (meters).")
 
     # Get stress components directly
     sigma_xx, sigma_yy, tau_xy = diametrical_stress_cartesian(X, Y, P, R)
