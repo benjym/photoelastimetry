@@ -3,9 +3,9 @@
   wavelengths: [650, 550, 450],
   thickness: 0.01,
   geometry: {
-    radius_m: 0.01,
-    center_px: [256, 256],
-    pixels_per_meter: 20000,
+    // radius_m: 0.01,
+    // center_px: [488, 415],
+    pixels_per_meter: 17000,
     edge_margin_fraction: 0.9,
     contact_exclusion_fraction: 0.12
   },

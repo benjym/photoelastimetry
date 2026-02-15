@@ -51,6 +51,15 @@ Seeding keys:
 - `seeding.n_max`
 - `seeding.sigma_max`
 
+Disorder Correction keys:
+
+Optional block `correction`:
+
+- `correction.enabled`: boolean (default `false`)
+- `correction.order_param`: float, [0, 1] (order parameter |m|)
+- `correction.N`: float (number of grain encounters)
+- `correction.d`: float (particle diameter, used to estimate N if N is missing)
+
 Optimisation keys:
 
 - `knot_spacing`
@@ -143,3 +152,9 @@ Load step input notes:
   - a demosaiced stack (`[H, W, n_wavelengths, 4]`), or
   - a raw frame (`.raw`) with nearby `recordingMetadata.json`
 - Raw calibration inputs are demosaiced internally to `[H, W, 3, 4]` using channels `R, G1, B`.
+
+## calibrate-photoelastimetry CLI Flags
+
+- positional: `json_filename`
+- `--interactive` (launch click-based geometry wizard)
+- `--save-config <path>` (write updated config after interactive geometry selection)

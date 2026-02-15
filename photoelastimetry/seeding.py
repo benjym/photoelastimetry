@@ -7,6 +7,7 @@ to provide accurate initial estimates for stress optimization algorithms.
 
 import numpy as np
 
+from photoelastimetry.correction import compute_disorder_correction, estimate_grain_encounters
 from photoelastimetry.image import compute_normalised_stokes, compute_stokes_components
 from photoelastimetry.unwrapping import unwrap_angles_graph_cut
 
@@ -344,6 +345,7 @@ def phase_decomposed_seeding(
     sigma_max=None,
     n_max=6,
     K=0.5,
+    correction_params=None,
 ):
     """
     Compute initial stress guess using phase decomposed seeding method.
@@ -368,6 +370,12 @@ def phase_decomposed_seeding(
         Maximum fringe order to search.
     K : float, optional. Default=0.5
         Principal stress ratio for initialisation.
+    correction_params : dict, optional
+        Parameters for disorder correction:
+        - enabled (bool): whether to apply correction
+        - order_param (float): order parameter |m| [0, 1]
+        - N (float, optional): number of encounters
+        - d (float, optional): particle diameter (to calculate N)
 
     Returns
     -------
@@ -450,6 +458,20 @@ def phase_decomposed_seeding(
     else:
         # Unwrap angles
         unwrapped_theta = unwrap_angles_graph_cut(theta, quality=delta_sigma)
+
+    # Apply disorder correction if enabled
+    if correction_params and correction_params.get("enabled", False):
+        order_param = correction_params.get("order_param")
+
+        N = correction_params.get("N")
+
+        if N is None and "d" in correction_params:
+            d = correction_params["d"]
+            N = estimate_grain_encounters(nu, L, d)
+
+        if N is not None:
+            correction_factor = compute_disorder_correction(N, order_param)
+            delta_sigma *= correction_factor
 
     # Vectorized stress tensor construction
     # initialise_stress_tensor returns (3, N)

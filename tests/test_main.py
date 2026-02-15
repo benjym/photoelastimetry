@@ -763,20 +763,25 @@ class TestCLIFunctions:
     @patch("json5.load")
     @patch("argparse.ArgumentParser.parse_args")
     def test_cli_calibrate(self, mock_args, mock_json_load, mock_open, mock_run_calibration):
-        mock_args.return_value = MagicMock(json_filename="calibration.json5")
+        mock_args.return_value = MagicMock(
+            json_filename="calibration.json5",
+            interactive=False,
+            save_config=None,
+        )
         mock_params = {"method": "brazilian_disk"}
         mock_json_load.return_value = mock_params
         mock_run_calibration.return_value = {
             "profile_file": "calibration_profile.json5",
             "report_file": "calibration_report.md",
             "diagnostics_file": "calibration_diagnostics.npz",
+            "diagnostics_plot_file": "calibration_fit.png",
         }
 
         with patch("builtins.print") as mock_print:
             main.cli_calibrate()
 
         mock_run_calibration.assert_called_once_with(mock_params)
-        assert mock_print.call_count == 3
+        assert mock_print.call_count == 4
 
     @patch("photoelastimetry.main.demosaic_raw_image")
     @patch("argparse.ArgumentParser.parse_args")

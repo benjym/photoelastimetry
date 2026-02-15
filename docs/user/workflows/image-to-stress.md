@@ -46,6 +46,8 @@ image-to-stress params.json5 --output recovered_stress.tiff
 - Seeding controls:
   - `seeding.n_max`
   - `seeding.sigma_max`
+- Correction for random stress orientation:
+  - `correction` block with `enabled: true`, `order_param`, and `N` or `d`
 - Optimisation controls:
   - `knot_spacing`, `spline_degree`
   - `max_iterations`, `tolerance`
@@ -67,5 +69,5 @@ All keys are documented in [Configuration Reference](../configuration.md).
   - keep only one of the two keys
 - `Boundary mask shape must be ...`:
   - ensure boundary files match image dimensions
-- ``solver` is no longer supported`:
+- ``solver`is no longer supported`:
   - remove deprecated solver selection keys

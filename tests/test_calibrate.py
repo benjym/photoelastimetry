@@ -132,6 +132,49 @@ def _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=
     return config, c_true, s_true
 
 
+def test_fit_circle_from_points_recovers_known_circle():
+    cx, cy, r = 12.0, -3.0, 5.0
+    theta = np.linspace(0, 2 * np.pi, 16, endpoint=False)
+    points = np.column_stack([cx + r * np.cos(theta), cy + r * np.sin(theta)])
+
+    fit_cx, fit_cy, fit_r = calibrate._fit_circle_from_points(points)
+
+    assert np.isclose(fit_cx, cx, atol=1e-6)
+    assert np.isclose(fit_cy, cy, atol=1e-6)
+    assert np.isclose(fit_r, r, atol=1e-6)
+
+
+def test_disk_roi_pixel_count_positive_for_valid_geometry():
+    geometry = {
+        "radius_m": 0.01,
+        "center_px": np.array([50.0, 50.0]),
+        "pixels_per_meter": 5000.0,
+        "edge_margin_fraction": 0.9,
+        "contact_exclusion_fraction": 0.12,
+    }
+    roi_pixels = calibrate._disk_roi_pixel_count(120, 120, geometry)
+    assert roi_pixels > 0
+
+
+def test_load_and_validate_image_raw_returns_demosaiced_shape(tmp_path):
+    recording_dir = Path(tmp_path) / "recording"
+    frame_dir = recording_dir / "0000000"
+    frame_dir.mkdir(parents=True)
+
+    raw = np.arange(16 * 16, dtype=np.uint8).reshape(16, 16)
+    raw_file = frame_dir / "frame0000000000.raw"
+    raw.tofile(raw_file)
+    (recording_dir / "recordingMetadata.json").write_text(
+        json.dumps({"width": 16, "height": 16, "pixelFormat": 17301513})
+    )
+
+    image = calibrate._load_and_validate_image(str(raw_file), expected_shape=None)
+    preview = calibrate._build_preview_image(image)
+
+    assert image.shape == (4, 4, 3, 4)
+    assert preview.shape == (4, 4)
+
+
 def _make_synthetic_coupon_case(tmp_path):
     height, width = 30, 42
     thickness = 0.01
@@ -323,6 +366,7 @@ def test_end_to_end_writes_profile_report_and_diagnostics(tmp_path):
     assert Path(result["profile_file"]).exists()
     assert Path(result["report_file"]).exists()
     assert Path(result["diagnostics_file"]).exists()
+    assert Path(result["diagnostics_plot_file"]).exists()
 
     with open(result["profile_file"], "r") as f:
         profile = json.load(f)
@@ -338,6 +382,13 @@ def test_end_to_end_writes_profile_report_and_diagnostics(tmp_path):
         "provenance",
     }
     assert required_keys.issubset(profile.keys())
+
+    diagnostics = np.load(result["diagnostics_file"])
+    roi_mask = diagnostics["roi_mask"].astype(bool)
+    measured_i0 = diagnostics["measured_i0"]
+    stokes_residual_mag = diagnostics["stokes_residual_mag"]
+    assert np.all(np.isnan(measured_i0[~roi_mask]))
+    assert np.all(np.isnan(stokes_residual_mag[~roi_mask]))
 
     loaded = calibrate.load_calibration_profile(result["profile_file"])
     assert loaded["method"] == "brazilian_disk"

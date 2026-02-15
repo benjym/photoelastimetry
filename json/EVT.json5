@@ -1,8 +1,0 @@
-{
-    mode : "camera",
-    // Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat]
-    S_i_hat : [1.0, 0.0, 0.0], // Incoming polarization state (linear at 0°)
-    folderName: "/Volumes/PRJ-DynamiX/Qianyu/2025_04_04/2025_04_04_09_22_47_171/02002060_diskSaving1/",
-    crop : [0, 500, 350, 820], // bottom, top, left, right
-    debug: true
-}

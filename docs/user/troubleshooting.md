@@ -18,6 +18,19 @@
 
 - Remove `solver`, `global_solver`, and `global_mean_stress` keys.
 
+### Stress values seem too low (underestimated)
+
+- In disordered granular systems with fixed thickness, vector cancellation can reduce the measured retardation.
+- Enable the disorder correction by adding a `correction` block to your JSON config:
+  ```json
+  "correction": {
+    "enabled": true,
+    "order_param": 0.5, // |m|: 0.0 (random) to 1.0 (aligned)
+    "N": 10.0 // approx 1.5 * nu * H / d
+  }
+  ```
+- Adjust `order_param` and `N` based on particle properties and expected transmission behavior.
+
 ## stress-to-image
 
 ### Error: missing stress map path
@@ -72,6 +85,16 @@
 ### Raw calibration input errors
 
 - If a raw `image_file` fails with missing metadata, add/verify adjacent `recordingMetadata.json`.
+
+### Interactive geometry does not open
+
+- Ensure a GUI backend is available for matplotlib.
+- In headless environments, set geometry manually in JSON instead of `--interactive`.
+
+### Fit quality is poor for beginners
+
+- Open the generated `*_fit.png` diagnostics plot and inspect residual maps inside the ROI.
+- If residuals are large or structured, re-run with `--interactive` and re-pick geometry.
 
 ## General Debug Checklist
 

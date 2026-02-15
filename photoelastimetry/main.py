@@ -200,6 +200,9 @@ def image_to_stress(params, output_filename=None):
     n_max = seeding_config.get("n_max", 6)
     sigma_max = seeding_config.get("sigma_max", 10e6)
 
+    # Correction parameters
+    correction_params = params.get("correction", {})
+
     print("Running phase decomposed seeding...")
     initial_stress_map = photoelastimetry.seeding.phase_decomposed_seeding(
         data,
@@ -210,6 +213,7 @@ def image_to_stress(params, output_filename=None):
         S_i_hat=S_I_HAT,
         sigma_max=sigma_max,
         n_max=n_max,
+        correction_params=correction_params,
     )
 
     H, W = data.shape[:2]
@@ -470,15 +474,39 @@ def cli_calibrate():
         type=str,
         help="Path to the calibration JSON5 parameter file.",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Launch interactive geometry wizard before calibration.",
+    )
+    parser.add_argument(
+        "--save-config",
+        type=str,
+        default=None,
+        help="Optional path to write the post-wizard calibration config JSON.",
+    )
     args = parser.parse_args()
 
     with open(args.json_filename, "r") as f:
         params = json5.load(f)
 
+    if args.interactive:
+        params = photoelastimetry.calibrate.interactive_geometry_wizard(params)
+        print("Applied interactive geometry selection.")
+        if args.save_config is not None:
+            out_dir = os.path.dirname(args.save_config)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            with open(args.save_config, "w") as f:
+                json.dump(params, f, indent=2)
+            print(f"Wrote updated calibration config: {args.save_config}")
+
     result = photoelastimetry.calibrate.run_calibration(params)
     print(f"Wrote calibration profile: {result['profile_file']}")
     print(f"Wrote calibration report: {result['report_file']}")
     print(f"Wrote calibration diagnostics: {result['diagnostics_file']}")
+    if "diagnostics_plot_file" in result:
+        print(f"Wrote calibration diagnostics plot: {result['diagnostics_plot_file']}")
 
 
 def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="tiff"):

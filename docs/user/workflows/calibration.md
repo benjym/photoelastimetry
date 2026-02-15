@@ -51,11 +51,28 @@ Fit calibration profile values (`C`, `S_i_hat`, blank correction) from known-loa
 calibrate-photoelastimetry calibration.json5
 ```
 
+Interactive geometry setup:
+
+```bash
+calibrate-photoelastimetry calibration.json5 --interactive --save-config calib/calibration_updated.json
+```
+
+In interactive mode:
+- `brazilian_disk`:
+  - left-click multiple points on the disk circumference (at least 3)
+  - a fitted circle overlay updates live as you add points
+  - ROI overlay and `roi_pixels` count update live
+  - right-click to undo the last point
+  - click `Done` when the overlay circle matches (or `Reset` to start over)
+  - `Done` is blocked if ROI would be empty for the current circle
+- `coupon_test`: click top-left, then bottom-right corners of the gauge ROI
+
 ## Expected Outputs
 
 - Calibration profile JSON5 (`output_profile`)
 - Markdown report (`output_report`)
 - Diagnostics archive (`output_diagnostics`)
+- Diagnostics figure PNG (`<output_report stem>_fit.png`)
 
 ## Use the Profile in Inversion
 
@@ -83,3 +100,16 @@ calibrate-photoelastimetry calibration.json5
   - for raw inputs, ensure all captures share dimensions and pixel format
 - Raw load step fails to decode:
   - verify `recordingMetadata.json` exists near each raw frame and includes valid pixel metadata
+
+## Beginner Checklist
+
+1. Start with one no-load frame and at least three non-zero load frames.
+2. Verify all calibration inputs are the same capture geometry and dimensions.
+3. Run once with `--interactive` to set geometry visually.
+4. Check the diagnostics plot (`*_fit.png`):
+   - measured vs synthetic maps should look qualitatively similar
+   - residual maps should be small and structure-free in the ROI
+5. If residuals are structured:
+   - revisit geometry clicks
+   - verify load magnitudes and thickness units
+   - include dark/blank correction frames if available

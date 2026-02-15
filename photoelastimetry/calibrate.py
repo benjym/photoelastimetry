@@ -12,6 +12,7 @@ Supported calibration methods:
 
 import json
 import os
+from copy import deepcopy
 from datetime import datetime, timezone
 
 import json5
@@ -20,7 +21,12 @@ from scipy.optimize import least_squares
 
 import photoelastimetry.io
 from photoelastimetry.generate.disk import diametrical_stress_cartesian
-from photoelastimetry.image import compute_normalised_stokes, compute_stokes_components, predict_stokes
+from photoelastimetry.image import (
+    compute_normalised_stokes,
+    compute_stokes_components,
+    predict_stokes,
+    simulate_four_step_polarimetry,
+)
 
 
 def _normalise_wavelengths(wavelengths):
@@ -457,6 +463,238 @@ def _load_and_validate_image(path, expected_shape=None):
     return data
 
 
+def _build_preview_image(image):
+    """Build a 2D preview image from a calibration image stack."""
+    if image.ndim == 2:
+        return image.astype(float)
+    if image.ndim == 4:
+        # Use I0 channel and average over wavelengths for a stable preview.
+        return np.mean(image[..., 0], axis=2).astype(float)
+    raise ValueError(f"Unsupported preview input shape: {image.shape}")
+
+
+def _fit_circle_from_points(points):
+    """Least-squares circle fit from Nx2 point coordinates."""
+    pts = np.asarray(points, dtype=float)
+    if pts.ndim != 2 or pts.shape[1] != 2 or pts.shape[0] < 3:
+        raise ValueError("At least 3 [x, y] points are required to fit a circle.")
+
+    x = pts[:, 0]
+    y = pts[:, 1]
+    A = np.column_stack([x, y, np.ones_like(x)])
+    b = -(x**2 + y**2)
+    params, residuals, rank, _ = np.linalg.lstsq(A, b, rcond=None)
+    if rank < 3:
+        raise ValueError("Selected points are degenerate; cannot fit a unique circle.")
+
+    a, b_lin, c = params
+    cx = -0.5 * a
+    cy = -0.5 * b_lin
+    r_sq = cx**2 + cy**2 - c
+    if r_sq <= 0:
+        raise ValueError("Fitted circle radius is not positive.")
+    radius = float(np.sqrt(r_sq))
+    return float(cx), float(cy), radius
+
+
+def _disk_roi_pixel_count(height, width, geometry):
+    """Return number of ROI pixels for a disk geometry candidate."""
+    _, _, _, roi_mask = _build_disk_coordinates(height, width, geometry)
+    return int(np.count_nonzero(roi_mask))
+
+
+def interactive_geometry_wizard(config):
+    """
+    Interactively pick geometry from the first load-step image.
+
+    - brazilian_disk: click center, then one edge point on the disk.
+    - coupon_test: click top-left then bottom-right gauge ROI corners.
+    """
+    method = config.get("method", "brazilian_disk")
+    if method not in {"brazilian_disk", "coupon_test"}:
+        raise ValueError(f"Unsupported method='{method}' for interactive wizard.")
+
+    steps = list(config.get("load_steps", []))
+    if len(steps) == 0:
+        raise ValueError("Interactive wizard requires at least one load step.")
+    first_image = steps[0].get("image_file")
+    if first_image is None:
+        raise ValueError("First load step must include 'image_file'.")
+    if not os.path.exists(first_image):
+        raise ValueError(f"Load-step image not found: {first_image}")
+
+    # Use the same preprocessing path as calibration dataset construction so
+    # interactive geometry coordinates match model coordinates exactly.
+    data = _load_and_validate_image(first_image, expected_shape=None)
+    preview = _build_preview_image(data)
+
+    import matplotlib.pyplot as plt
+
+    cfg = deepcopy(config)
+    geometry = dict(cfg.get("geometry", {}))
+
+    fig, ax = plt.subplots(figsize=(9, 7))
+    fig.subplots_adjust(bottom=0.16)
+    ax.imshow(preview, cmap="gray")
+    ax.set_title("Calibration Geometry Wizard")
+    ax.set_axis_off()
+    if method == "brazilian_disk":
+        from matplotlib.patches import Circle
+        from matplotlib.widgets import Button
+
+        ppm = geometry.get("pixels_per_meter")
+        if ppm is None:
+            raise ValueError(
+                "geometry.pixels_per_meter is required for interactive disk calibration to convert pixels to meters."
+            )
+        ppm = float(ppm)
+        if ppm <= 0:
+            raise ValueError("geometry.pixels_per_meter must be positive.")
+        instruction = ax.text(
+            0.01,
+            0.99,
+            "Left-click circumference points (>=3). Right-click to undo.\nClick Done when the overlay circle matches.",
+            transform=ax.transAxes,
+            va="top",
+            ha="left",
+            fontsize=9,
+            color="white",
+            bbox={"facecolor": "black", "alpha": 0.45, "pad": 4},
+        )
+        _ = instruction
+
+        points = []
+        point_scatter = ax.scatter([], [], c="yellow", s=24)
+        circle_patch = Circle((0, 0), radius=1.0, fill=False, edgecolor="cyan", linewidth=2, visible=False)
+        ax.add_patch(circle_patch)
+        roi_contour = None
+        fit_text = ax.text(
+            0.01,
+            0.05,
+            "",
+            transform=ax.transAxes,
+            va="bottom",
+            ha="left",
+            fontsize=9,
+            color="white",
+            bbox={"facecolor": "black", "alpha": 0.45, "pad": 3},
+        )
+
+        state = {"accepted": False, "fit": None}
+
+        def _update_overlay():
+            nonlocal roi_contour
+            if len(points) == 0:
+                point_scatter.set_offsets(np.empty((0, 2)))
+            else:
+                point_scatter.set_offsets(np.asarray(points, dtype=float))
+            if len(points) >= 3:
+                try:
+                    cx, cy, radius_px = _fit_circle_from_points(points)
+                    circle_patch.center = (cx, cy)
+                    circle_patch.radius = radius_px
+                    circle_patch.set_visible(True)
+                    geom_candidate = {
+                        "radius_m": radius_px / ppm,
+                        "center_px": np.array([cx, cy], dtype=float),
+                        "pixels_per_meter": ppm,
+                        "edge_margin_fraction": float(geometry.get("edge_margin_fraction", 0.9)),
+                        "contact_exclusion_fraction": float(geometry.get("contact_exclusion_fraction", 0.12)),
+                    }
+                    roi_pixels = _disk_roi_pixel_count(preview.shape[0], preview.shape[1], geom_candidate)
+                    fit_text.set_text(
+                        f"n={len(points)}  center=({cx:.1f}, {cy:.1f})  radius={radius_px:.1f}px  roi_pixels={roi_pixels}"
+                    )
+                    state["fit"] = (cx, cy, radius_px, roi_pixels)
+
+                    if roi_contour is not None:
+                        for coll in roi_contour.collections:
+                            coll.remove()
+                    _, _, _, roi_mask = _build_disk_coordinates(
+                        preview.shape[0], preview.shape[1], geom_candidate
+                    )
+                    roi_contour = ax.contour(
+                        roi_mask.astype(float), levels=[0.5], colors="lime", linewidths=1.0
+                    )
+                except ValueError as exc:
+                    circle_patch.set_visible(False)
+                    fit_text.set_text(str(exc))
+                    state["fit"] = None
+                    if roi_contour is not None:
+                        for coll in roi_contour.collections:
+                            coll.remove()
+                        roi_contour = None
+            else:
+                circle_patch.set_visible(False)
+                fit_text.set_text("Need at least 3 points.")
+                state["fit"] = None
+                if roi_contour is not None:
+                    for coll in roi_contour.collections:
+                        coll.remove()
+                    roi_contour = None
+            fig.canvas.draw_idle()
+
+        def _on_click(event):
+            if event.inaxes != ax or event.xdata is None or event.ydata is None:
+                return
+            if event.button == 1:
+                points.append((float(event.xdata), float(event.ydata)))
+            elif event.button == 3 and len(points) > 0:
+                points.pop()
+            else:
+                return
+            _update_overlay()
+
+        def _on_done(_event):
+            if state["fit"] is None:
+                fit_text.set_text("Need a valid circle fit before Done.")
+                fig.canvas.draw_idle()
+                return
+            if state["fit"][3] <= 0:
+                fit_text.set_text("ROI is empty for this circle. Add/adjust circumference points.")
+                fig.canvas.draw_idle()
+                return
+            state["accepted"] = True
+            plt.close(fig)
+
+        def _on_reset(_event):
+            points.clear()
+            _update_overlay()
+
+        done_ax = fig.add_axes([0.80, 0.03, 0.16, 0.07])
+        done_btn = Button(done_ax, "Done")
+        done_btn.on_clicked(_on_done)
+
+        reset_ax = fig.add_axes([0.62, 0.03, 0.16, 0.07])
+        reset_btn = Button(reset_ax, "Reset")
+        reset_btn.on_clicked(_on_reset)
+
+        fig.canvas.mpl_connect("button_press_event", _on_click)
+        _update_overlay()
+        plt.show()
+
+        if not state["accepted"] or state["fit"] is None:
+            raise ValueError("Interactive selection canceled. Circle was not accepted.")
+
+        cx, cy, radius_px, _roi_pixels = state["fit"]
+        geometry["center_px"] = [cx, cy]
+        geometry["radius_m"] = radius_px / ppm
+    else:
+        points = plt.ginput(2, timeout=0)
+        plt.close(fig)
+        if len(points) != 2:
+            raise ValueError("Interactive selection canceled. Please provide exactly two clicks.")
+        (x0, y0), (x1, y1) = points
+        xa, xb = sorted([int(round(x0)), int(round(x1))])
+        ya, yb = sorted([int(round(y0)), int(round(y1))])
+        if xa == xb or ya == yb:
+            raise ValueError("Selected ROI must have non-zero width and height.")
+        geometry["gauge_roi_px"] = [xa, xb, ya, yb]
+
+    cfg["geometry"] = geometry
+    return cfg
+
+
 def _prepare_sampling_points(roi_mask, max_points, seed):
     """Select deterministic random sampling points from ROI mask."""
     y_idx, x_idx = np.where(roi_mask)
@@ -549,6 +787,8 @@ def _build_dataset(config):
 
     no_load_tolerance = config["load_zero_tolerance"]
     no_load_measurements = []
+    diagnostic_step_index = int(np.argmax(np.abs(loads)))
+    diagnostic_image = corrected_images[diagnostic_step_index]
 
     for load, image in zip(loads, corrected_images):
         I0 = image[..., 0]
@@ -586,6 +826,7 @@ def _build_dataset(config):
     initial_s_i_hat = _initial_s_i_hat_from_noload(noload)
 
     dataset = {
+        "method": config["method"],
         "wavelengths": config["wavelengths"],
         "nu": config["nu"],
         "thickness": config["thickness"],
@@ -602,6 +843,12 @@ def _build_dataset(config):
         "disk_mask": model_mask,
         "blank_correction": blank_correction,
         "initial_s_i_hat": initial_s_i_hat,
+        "X": X,
+        "Y": Y,
+        "geometry": config["geometry"],
+        "diagnostic_step_index": diagnostic_step_index,
+        "diagnostic_load": float(loads[diagnostic_step_index]),
+        "diagnostic_image": diagnostic_image,
     }
     return dataset
 
@@ -846,8 +1093,127 @@ def _write_report(report_path, profile, config):
             ]
         )
 
+    diagnostics_plot = profile.get("provenance", {}).get("diagnostics_plot_file")
+    if diagnostics_plot is not None:
+        lines.extend(["", "## Visual Diagnostics", "", f"- diagnostics_plot_file: `{diagnostics_plot}`"])
+
     with open(report_path, "w") as f:
         f.write("\n".join(lines) + "\n")
+
+
+def _build_visual_diagnostics(dataset, fit_result):
+    """Build measured/predicted diagnostic maps for one representative load step."""
+    image = np.asarray(dataset["diagnostic_image"], dtype=float)
+    load = float(dataset["diagnostic_load"])
+    C = np.asarray(fit_result["C"], dtype=float)
+    S_i_hat = np.asarray(fit_result["S_i_hat"], dtype=float)
+
+    H, W, n_channels, _ = image.shape
+    channel = int(min(1, n_channels - 1))
+
+    if dataset["method"] == "brazilian_disk":
+        X = dataset["X"]
+        Y = dataset["Y"]
+        sigma_xx, sigma_yy, sigma_xy = diametrical_stress_cartesian(
+            X, Y, P=load, R=dataset["geometry"]["radius_m"]
+        )
+    else:
+        sigma_xx = np.zeros((H, W), dtype=float)
+        sigma_yy = np.zeros((H, W), dtype=float)
+        sigma_xy = np.zeros((H, W), dtype=float)
+        x0, x1, y0, y1 = [int(v) for v in dataset["geometry"]["gauge_roi_px"]]
+        sigma_nominal = load / (dataset["thickness"] * dataset["geometry"]["coupon_width_m"])
+        transverse = dataset["geometry"].get("transverse_stress_ratio", 0.0) * sigma_nominal
+        if dataset["geometry"].get("load_axis", "x") == "x":
+            sigma_xx[y0:y1, x0:x1] = sigma_nominal
+            sigma_yy[y0:y1, x0:x1] = transverse
+        else:
+            sigma_xx[y0:y1, x0:x1] = transverse
+            sigma_yy[y0:y1, x0:x1] = sigma_nominal
+
+    measured_i0 = image[:, :, channel, 0]
+    predicted_s = predict_stokes(
+        sigma_xx,
+        sigma_yy,
+        sigma_xy,
+        C[channel],
+        dataset["nu"],
+        dataset["thickness"],
+        dataset["wavelengths"][channel],
+        S_i_hat,
+    )
+    pred_i0, _, _, _ = simulate_four_step_polarimetry(
+        sigma_xx,
+        sigma_yy,
+        sigma_xy,
+        C[channel],
+        dataset["nu"],
+        dataset["thickness"],
+        dataset["wavelengths"][channel],
+        S_i_hat,
+        I0=1.0,
+    )
+
+    I0 = image[:, :, channel, 0]
+    I45 = image[:, :, channel, 1]
+    I90 = image[:, :, channel, 2]
+    I135 = image[:, :, channel, 3]
+    S0, S1, S2 = compute_stokes_components(I0, I45, I90, I135)
+    measured_s1, measured_s2 = compute_normalised_stokes(S0, S1, S2)
+    measured_s = np.stack([measured_s1, measured_s2], axis=-1)
+
+    stokes_residual_mag = np.linalg.norm(predicted_s - measured_s, axis=-1)
+    i0_residual_abs = np.abs(measured_i0 - pred_i0)
+    roi_mask = np.asarray(dataset["roi_mask"], dtype=bool)
+
+    def _mask_to_roi(arr):
+        out = np.asarray(arr, dtype=float).copy()
+        out[~roi_mask] = np.nan
+        return out
+
+    return {
+        "channel": channel,
+        "measured_i0": _mask_to_roi(measured_i0),
+        "predicted_i0": _mask_to_roi(pred_i0),
+        "i0_residual_abs": _mask_to_roi(i0_residual_abs),
+        "measured_s1": _mask_to_roi(measured_s[..., 0]),
+        "predicted_s1": _mask_to_roi(predicted_s[..., 0]),
+        "stokes_residual_mag": _mask_to_roi(stokes_residual_mag),
+    }
+
+
+def _write_visual_diagnostics_plot(plot_path, dataset, fit_result):
+    """Write a PNG summary of measured vs synthetic calibration fit quality."""
+    maps = _build_visual_diagnostics(dataset, fit_result)
+    roi_mask = np.asarray(dataset["roi_mask"], dtype=bool)
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=(13, 8), constrained_layout=True)
+    _canvas = FigureCanvas(fig)
+    axes = fig.subplots(2, 3)
+    entries = [
+        ("Measured I0", maps["measured_i0"], "gray"),
+        ("Synthetic I0", maps["predicted_i0"], "gray"),
+        ("|I0 residual|", maps["i0_residual_abs"], "magma"),
+        ("Measured S1_hat", maps["measured_s1"], "coolwarm"),
+        ("Synthetic S1_hat", maps["predicted_s1"], "coolwarm"),
+        ("Stokes residual magnitude", maps["stokes_residual_mag"], "magma"),
+    ]
+
+    for ax, (title, arr, cmap) in zip(axes.ravel(), entries):
+        im = ax.imshow(arr, cmap=cmap)
+        ax.contour(roi_mask.astype(float), levels=[0.5], colors="w", linewidths=0.7)
+        ax.set_title(title, fontsize=10)
+        ax.set_axis_off()
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+
+    fig.suptitle(
+        f"Calibration Fit Diagnostics (channel index={maps['channel']}, load={dataset['diagnostic_load']})",
+        fontsize=12,
+    )
+    fig.savefig(plot_path, dpi=160)
 
 
 def run_calibration(config):
@@ -871,12 +1237,14 @@ def run_calibration(config):
     output_profile = cfg["output_profile"]
     output_report = cfg["output_report"]
     output_diagnostics = cfg["output_diagnostics"]
+    report_root, report_ext = os.path.splitext(output_report)
+    output_diagnostics_plot = f"{report_root}_fit.png" if report_ext else f"{output_report}_fit.png"
 
     output_dir = os.path.dirname(output_profile)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    for path in (output_report, output_diagnostics):
+    for path in (output_report, output_diagnostics, output_diagnostics_plot):
         folder = os.path.dirname(path)
         if folder:
             os.makedirs(folder, exist_ok=True)
@@ -897,6 +1265,7 @@ def run_calibration(config):
         "blank_frame_file": _safe_relative_path(cfg["blank_frame_file"], profile_dir),
         "load_steps": provenance_steps,
         "diagnostics_file": _safe_relative_path(output_diagnostics, profile_dir),
+        "diagnostics_plot_file": _safe_relative_path(output_diagnostics_plot, profile_dir),
     }
     provenance.update(cfg["provenance"])
 
@@ -914,7 +1283,9 @@ def run_calibration(config):
     with open(output_profile, "w") as f:
         json.dump(profile, f, indent=2)
 
+    _write_visual_diagnostics_plot(output_diagnostics_plot, dataset, fit_result)
     _write_report(output_report, profile, cfg)
+    visual_maps = _build_visual_diagnostics(dataset, fit_result)
 
     np.savez(
         output_diagnostics,
@@ -927,6 +1298,13 @@ def run_calibration(config):
         C=np.asarray(profile["C"], dtype=float),
         S_i_hat=np.asarray(profile["S_i_hat"], dtype=float),
         residual=fit_result["optimizer_result"].fun,
+        diagnostic_channel=np.array([visual_maps["channel"]], dtype=int),
+        measured_i0=visual_maps["measured_i0"],
+        predicted_i0=visual_maps["predicted_i0"],
+        i0_residual_abs=visual_maps["i0_residual_abs"],
+        measured_s1=visual_maps["measured_s1"],
+        predicted_s1=visual_maps["predicted_s1"],
+        stokes_residual_mag=visual_maps["stokes_residual_mag"],
     )
 
     return {
@@ -934,4 +1312,5 @@ def run_calibration(config):
         "profile_file": output_profile,
         "report_file": output_report,
         "diagnostics_file": output_diagnostics,
+        "diagnostics_plot_file": output_diagnostics_plot,
     }
