@@ -526,16 +526,16 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
             TIFF stack or 'png' for individual PNG files. Defaults to 'tiff'.
 
     Returns:
-        numpy.ndarray: De-mosaiced image stack of shape [H, W, 4, 4] where:
+        numpy.ndarray: De-mosaiced image stack of shape [H, W, 3, 4] where:
             - H, W are the de-mosaiced dimensions (1/4 of original)
-            - First dimension 4: color channels (R, G1, G2, B)
+            - First dimension 3: color channels (R, G, B)
             - Second dimension 4: polarisation angles (0°, 45°, 90°, 135°)
 
     Notes:
         - The raw image uses a 4x4 superpixel pattern with interleaved polarisation
           and color filters
-        - Output TIFF stack has shape [H, W, 4, 4] with all channels
-        - Output PNGs create 4 files (one per polarisation angle) with shape [H, W, 4]
+                - Output TIFF stack has shape [H, W, 3, 4] using the canonical RGB channels
+                - Output PNGs create 4 files (one per polarisation angle) with shape [H, W, 3]
           showing all color channels
     """
     # Read raw image
@@ -549,10 +549,9 @@ def demosaic_raw_image(input_file, metadata, output_prefix=None, output_format="
 def demosaic_raw_data(data, output_prefix, output_format="tiff"):
     """De-mosaic raw sensor data array and save outputs."""
     # De-mosaic into channels
-    demosaiced = photoelastimetry.io.split_channels(data)
-
-    # Keep only R, G1, B channels by removing G2
-    demosaiced = demosaiced[:, :, [0, 1, 3], :]  # Keep R, G1, B
+    demosaiced = photoelastimetry.io.collapse_duplicate_green_channel(
+        photoelastimetry.io.split_channels(data)
+    )
 
     # Save based on format
     if output_format.lower() == "tiff":

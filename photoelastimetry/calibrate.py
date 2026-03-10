@@ -445,9 +445,8 @@ def _load_and_validate_image(path, expected_shape=None):
     # Support raw 2D Bayer+polarisation frames by demosaicing to [H, W, C, 4].
     if data.ndim == 2:
         data = photoelastimetry.io.split_channels(data)
-        if data.shape[2] == 4:
-            # Keep R, G1, B to match the standard 3-wavelength processing pipeline.
-            data = data[:, :, [0, 1, 3], :]
+    if data.ndim == 4:
+        data = photoelastimetry.io.collapse_duplicate_green_channel(data)
     data = np.asarray(data, dtype=float)
 
     if data.ndim != 4 or data.shape[-1] != 4:

@@ -175,6 +175,42 @@ def test_load_and_validate_image_raw_returns_demosaiced_shape(tmp_path):
     assert preview.shape == (4, 4)
 
 
+def test_build_dataset_accepts_raw_recording_directory_load_steps(tmp_path):
+    recording_dir = Path(tmp_path) / "recording"
+    frame_dir = recording_dir / "0000000"
+    frame_dir.mkdir(parents=True)
+
+    raw = np.arange(16 * 16, dtype=np.uint8).reshape(16, 16)
+    (recording_dir / "recordingMetadata.json").write_text(
+        json.dumps({"width": 16, "height": 16, "pixelFormat": 17301513})
+    )
+    raw.tofile(frame_dir / "frame0000000000.raw")
+
+    config = {
+        "method": "brazilian_disk",
+        "wavelengths": [650, 550, 450],
+        "thickness": 0.01,
+        "geometry": {
+            "radius_m": 0.001,
+            "center_px": [2.0, 2.0],
+            "pixels_per_meter": 4000.0,
+        },
+        "load_steps": [
+            {"image_file": str(recording_dir), "load": 0.0},
+            {"image_file": str(recording_dir), "load": 1.0},
+            {"image_file": str(recording_dir), "load": 2.0},
+            {"image_file": str(recording_dir), "load": 3.0},
+        ],
+    }
+
+    validated = calibrate.validate_calibration_config(config)
+    dataset = calibrate._build_dataset(validated)
+
+    assert dataset["loads"].shape == (4,)
+    assert dataset["diagnostic_image"].shape == (4, 4, 3, 4)
+    assert dataset["measured_steps"][0].shape[-2:] == (3, 2)
+
+
 def _make_synthetic_coupon_case(tmp_path):
     height, width = 30, 42
     thickness = 0.01

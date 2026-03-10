@@ -6,6 +6,7 @@ import pytest
 
 from photoelastimetry.io import (
     bin_image,
+    collapse_duplicate_green_channel,
     list_supported_bayer_pixel_formats,
     load_image,
     load_raw,
@@ -25,6 +26,18 @@ def test_split_channels_known_superpixel_mapping():
     assert out[0, 0, 0, 1] == data[0, 1]  # R_45
     assert out[0, 0, 0, 2] == data[1, 1]  # R_90
     assert out[0, 0, 0, 3] == data[1, 0]  # R_135
+
+
+def test_collapse_duplicate_green_channel_removes_g2():
+    data = np.arange(16, dtype=np.uint16).reshape(4, 4)
+    demosaiced = split_channels(data)
+
+    collapsed = collapse_duplicate_green_channel(demosaiced)
+
+    assert collapsed.shape == (1, 1, 3, 4)
+    assert np.array_equal(collapsed[:, :, 0, :], demosaiced[:, :, 0, :])
+    assert np.array_equal(collapsed[:, :, 1, :], demosaiced[:, :, 1, :])
+    assert np.array_equal(collapsed[:, :, 2, :], demosaiced[:, :, 3, :])
 
 
 @pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
@@ -147,11 +160,11 @@ def test_load_raw_median_and_split_channels(tmp_path):
     demosaiced, metadata = load_raw(str(root))
 
     expected_median = np.median(np.stack([f0, f1], axis=0), axis=0)
-    expected = split_channels(expected_median)
+    expected = collapse_duplicate_green_channel(split_channels(expected_median))
 
     assert metadata["width"] == 4
     assert metadata["height"] == 4
-    assert demosaiced.shape == (1, 1, 4, 4)
+    assert demosaiced.shape == (1, 1, 3, 4)
     assert np.allclose(demosaiced, expected)
 
 
@@ -185,6 +198,25 @@ def test_load_image_raw_uses_recording_metadata_when_metadata_not_provided(tmp_p
     assert loaded.shape == (4, 4)
     assert np.array_equal(loaded, arr)
     assert meta["dtype"] == "uint8"
+    assert meta["pixelFormat"] == 17301513
+
+
+def test_load_image_accepts_raw_recording_directory(tmp_path):
+    root = Path(tmp_path) / "recording"
+    frame_dir = root / "0000000"
+    frame_dir.mkdir(parents=True)
+
+    arr = np.arange(16, dtype=np.uint8).reshape(4, 4)
+    (root / "recordingMetadata.json").write_text(
+        json.dumps({"width": 4, "height": 4, "pixelFormat": 17301513})
+    )
+    arr.tofile(frame_dir / "frame0000000000.raw")
+
+    loaded, meta = load_image(str(root))
+
+    assert loaded.shape == (1, 1, 3, 4)
+    assert meta["width"] == 4
+    assert meta["height"] == 4
     assert meta["pixelFormat"] == 17301513
 
 

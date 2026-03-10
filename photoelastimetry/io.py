@@ -116,7 +116,7 @@ def load_raw(foldername):
             data.append(read_raw(frame_file, metadata))
         data = np.median(np.array(data), axis=0)
 
-    data = split_channels(data)
+    data = collapse_duplicate_green_channel(split_channels(data))
 
     return data, metadata
 
@@ -167,6 +167,17 @@ def split_channels(data):
         axis=-1,
     )
     return data
+
+
+def collapse_duplicate_green_channel(data):
+    """Convert demosaiced RGGB data to the canonical RGB channel set."""
+    if data.ndim != 4:
+        raise ValueError(f"Expected demosaiced data with shape [H, W, C, 4]. Got {data.shape}.")
+    if data.shape[2] == 3:
+        return data
+    if data.shape[2] == 4:
+        return data[:, :, [0, 1, 3], :]
+    raise ValueError(f"Expected 3 or 4 colour channels in demosaiced data. Got {data.shape}.")
 
 
 def save_image(filename, data, metadata={}):
@@ -254,7 +265,8 @@ def load_image(filename, metadata=None):
     ----------
     filename : str
         Path to the input file. The file extension determines the format.
-        Supported extensions: .npy, .raw, .png, .jpg, .jpeg, .tiff, .tif
+        Supported extensions: .npy, .raw, .png, .jpg, .jpeg, .tiff, .tif.
+        A raw recording directory containing recordingMetadata.json is also supported.
     metadata : dict, optional
         Dictionary containing metadata about the image. For .raw format, must
         contain "width", "height", and "dtype" keys specifying the image dimensions
@@ -284,7 +296,9 @@ def load_image(filename, metadata=None):
     >>> metadata = {"width": 100, "height": 100, "dtype": "uint8"}
     >>> data = load_image("input.raw", metadata)
     """
-    if filename.endswith(".npy"):
+    if os.path.isdir(filename):
+        data, metadata = load_raw(filename)
+    elif filename.endswith(".npy"):
         data = np.load(filename)
     elif filename.endswith(".raw"):
         if metadata is None:
