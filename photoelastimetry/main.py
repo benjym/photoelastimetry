@@ -204,7 +204,7 @@ def image_to_stress(params, output_filename=None):
     correction_params = params.get("correction", {})
 
     print("Running phase decomposed seeding...")
-    initial_stress_map = photoelastimetry.seeding.phase_decomposed_seeding(
+    seed = photoelastimetry.seeding.phase_decomposed_seeding(
         data,
         WAVELENGTHS,
         C_VALUES,
@@ -283,15 +283,13 @@ def image_to_stress(params, output_filename=None):
     if "regularization_weight" in params and "regularisation_weight" not in optimise_params:
         optimise_params["regularisation_weight"] = params["regularization_weight"]
 
-    initial_diff, initial_theta = photoelastimetry.optimise.stress_to_principal_invariants(initial_stress_map)
-
     bspline_wrapper, coeffs = photoelastimetry.optimise.recover_mean_stress(
-        initial_diff,
-        initial_theta,
+        seed.delta_sigma,
+        seed.theta,
         boundary_mask=boundary_mask,
         boundary_values=boundary_values,
         external_potential=external_potential,
-        initial_stress_map=initial_stress_map,
+        initial_stress_map=seed.to_stress_map(K=0.5),
         **optimise_params,
     )
 

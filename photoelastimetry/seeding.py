@@ -1,15 +1,117 @@
 """
-Phase decomposed seeding for stress initialisation.
+Phase decomposed seeding for stress inversion.
 
 This module implements the phase decomposed seeding method described in the paper
-to provide accurate initial estimates for stress optimization algorithms.
+to provide resolved optical retardance and stress invariants for later recovery.
 """
+
+from dataclasses import dataclass
 
 import numpy as np
 
 from photoelastimetry.correction import compute_disorder_correction, estimate_grain_encounters
 from photoelastimetry.image import compute_normalised_stokes, compute_stokes_components
 from photoelastimetry.unwrapping import unwrap_angles_graph_cut
+
+
+@dataclass
+class PhaseDecomposedSeed:
+    """Resolved seed state returned by :func:`phase_decomposed_seeding`."""
+
+    retardance: np.ndarray
+    theta: np.ndarray
+    delta_sigma: np.ndarray
+
+    def __post_init__(self):
+        self.retardance = np.asarray(self.retardance, dtype=float)
+        self.theta = np.asarray(self.theta, dtype=float)
+        self.delta_sigma = np.asarray(self.delta_sigma, dtype=float)
+
+        if self.retardance.ndim < 1:
+            raise ValueError("retardance must have at least one dimension.")
+        if self.retardance.shape[:-1] != self.theta.shape:
+            raise ValueError(
+                "retardance spatial shape must match theta shape; "
+                f"got {self.retardance.shape[:-1]} and {self.theta.shape}."
+            )
+        if self.theta.shape != self.delta_sigma.shape:
+            raise ValueError(
+                "theta and delta_sigma must have matching shapes; "
+                f"got {self.theta.shape} and {self.delta_sigma.shape}."
+            )
+
+    def to_stress_map(self, K=0.5):
+        """Reconstruct a stress map using a principal-stress ratio assumption."""
+        return principal_invariants_to_stress_map(self.delta_sigma, self.theta, K=K)
+
+
+def _normalise_input_stokes_vector(S_i_hat):
+    """Ensure the incoming Stokes vector uses the internal 3-component representation."""
+    S_i_hat = np.asarray(S_i_hat, dtype=float)
+    if S_i_hat.shape == (2,):
+        S_i_hat = np.append(S_i_hat, 0.0)
+    if S_i_hat.shape != (3,):
+        raise ValueError(f"S_i_hat must have shape (2,) or (3,), got {S_i_hat.shape}")
+    return S_i_hat
+
+
+def _delta_sigma_to_retardance(delta_sigma, wavelengths, C_values, nu, L):
+    """Convert principal-stress difference to resolved retardance per wavelength."""
+    delta_sigma = np.asarray(delta_sigma, dtype=float)
+    wavelengths = np.asarray(wavelengths, dtype=float)
+    C_values = np.asarray(C_values, dtype=float)
+    factor = (2 * np.pi * C_values * nu * L) / wavelengths
+    return delta_sigma[..., np.newaxis] * factor
+
+
+def retardance_to_delta_sigma(retardance, wavelengths, C_values, nu, L, reduction="median"):
+    """
+    Convert resolved retardance to principal-stress difference.
+
+    Parameters
+    ----------
+    retardance : ndarray
+        Resolved retardance with shape (..., n_wavelengths).
+    wavelengths : ndarray
+        Wavelengths in meters.
+    C_values : ndarray
+        Stress-optic coefficients.
+    nu : float
+        Solid fraction.
+    L : float
+        Thickness.
+    reduction : {"median", "mean", "none"}
+        Reduction across wavelengths. ``"none"`` returns one stress estimate per channel.
+
+    Returns
+    -------
+    ndarray
+        Principal-stress-difference estimate with shape ``retardance.shape[:-1]`` unless
+        ``reduction="none"``, in which case the per-channel estimates are returned.
+    """
+    retardance = np.asarray(retardance, dtype=float)
+    wavelengths = np.asarray(wavelengths, dtype=float)
+    C_values = np.asarray(C_values, dtype=float)
+
+    if wavelengths.shape != C_values.shape:
+        raise ValueError(
+            f"wavelengths and C_values must have matching shapes, got {wavelengths.shape} and {C_values.shape}"
+        )
+    if retardance.shape[-1] != wavelengths.shape[0]:
+        raise ValueError(
+            f"retardance last axis must have length {wavelengths.shape[0]}, got {retardance.shape[-1]}"
+        )
+
+    factor = wavelengths / (2 * np.pi * C_values * nu * L)
+    delta_sigma = retardance * factor
+
+    if reduction == "median":
+        return np.nanmedian(delta_sigma, axis=-1)
+    if reduction == "mean":
+        return np.nanmean(delta_sigma, axis=-1)
+    if reduction == "none":
+        return delta_sigma
+    raise ValueError(f"Unsupported reduction '{reduction}'. Use 'median', 'mean', or 'none'.")
 
 
 def invert_wrapped_retardance(S_m_hat, S_i_hat):
@@ -302,9 +404,11 @@ def resolve_fringe_orders(
         return best_delta_sigma.item()
 
 
-def initialise_stress_tensor(delta_sigma, theta, K=1):
+def principal_invariants_to_stress_map(delta_sigma, theta, K=1):
     """
-    Initialise stress tensor components assuming a principal stress ratio K. Under these conditions, the stresses are:
+    Convert principal-stress invariants to a stress map using ratio ``K``.
+
+    Under these conditions, the stresses are:
      - sigma_1 = delta_sigma / (1 - K)
      - sigma_2 = K * sigma_1
      - p = (sigma_1 + sigma_2) / 2
@@ -321,10 +425,11 @@ def initialise_stress_tensor(delta_sigma, theta, K=1):
 
     Returns
     -------
-    stress : ndarray
-        Stress components [sigma_xx, sigma_yy, sigma_xy].
+    stress_map : ndarray
+        Stress components [sigma_xx, sigma_yy, sigma_xy] with shape (..., 3).
     """
-
+    delta_sigma = np.asarray(delta_sigma, dtype=float)
+    theta = np.asarray(theta, dtype=float)
     sigma_1 = delta_sigma / (1 - K)
     sigma_2 = K * sigma_1
     p = (sigma_1 + sigma_2) / 2
@@ -334,7 +439,7 @@ def initialise_stress_tensor(delta_sigma, theta, K=1):
     sigma_yy = p - (delta_sigma / 2) * cos_2theta
     sigma_xy = (delta_sigma / 2) * sin_2theta
 
-    return np.array([sigma_xx, sigma_yy, sigma_xy])
+    return np.stack([sigma_xx, sigma_yy, sigma_xy], axis=-1)
 
 
 def phase_decomposed_seeding(
@@ -346,11 +451,10 @@ def phase_decomposed_seeding(
     S_i_hat=None,
     sigma_max=None,
     n_max=6,
-    K=0.5,
     correction_params=None,
 ):
     """
-    Compute initial stress guess using phase decomposed seeding method.
+    Compute a resolved optical seed using the phase decomposed seeding method.
 
     Parameters
     ----------
@@ -370,8 +474,6 @@ def phase_decomposed_seeding(
         Maximum allowed stress difference (Pa).
     n_max : int
         Maximum fringe order to search.
-    K : float, optional. Default=0.5
-        Principal stress ratio for initialisation.
     correction_params : dict, optional
         Parameters for disorder correction:
         - enabled (bool): whether to apply correction
@@ -381,8 +483,8 @@ def phase_decomposed_seeding(
 
     Returns
     -------
-    stress_map : ndarray
-        Initial stress map [H, W, 3].
+    PhaseDecomposedSeed
+        Resolved retardance and principal-stress invariants for later recovery.
     """
     # Flatten data for processing
     H, W = data.shape[:2]
@@ -407,6 +509,7 @@ def phase_decomposed_seeding(
     if S_i_hat is None:
         # Default: linear horizontal polarization
         S_i_hat = np.array([1.0, 0.0, 0.0])
+    S_i_hat = _normalise_input_stokes_vector(S_i_hat)
 
     # Vectorized inversion
     theta, delta_wrap = invert_wrapped_retardance(S_flat, S_i_hat)
@@ -477,10 +580,6 @@ def phase_decomposed_seeding(
             correction_factor = compute_disorder_correction(N, order_param)
             delta_sigma *= correction_factor
 
-    # Vectorized stress tensor construction
-    # initialise_stress_tensor returns (3, N)
-    stress_components = initialise_stress_tensor(delta_sigma.flatten(), unwrapped_theta.flatten(), K)
-    # Reshape to (H, W, 3)
-    stress_map = np.moveaxis(stress_components, 0, -1).reshape(H, W, 3)
+    retardance = _delta_sigma_to_retardance(delta_sigma, wavelengths, C_values, nu, L)
 
-    return stress_map
+    return PhaseDecomposedSeed(retardance=retardance, theta=unwrapped_theta, delta_sigma=delta_sigma)

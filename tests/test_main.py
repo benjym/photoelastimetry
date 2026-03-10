@@ -38,9 +38,17 @@ class TestImageToStress:
             patch("photoelastimetry.main.photoelastimetry.optimise.recover_mean_stress") as mock_recover,
         ):
 
+            class FakeSeed:
+                def __init__(self, height, width):
+                    self.delta_sigma = np.ones((height, width), dtype=float)
+                    self.theta = np.zeros((height, width), dtype=float)
+
+                def to_stress_map(self, K=0.5):
+                    return np.full(self.delta_sigma.shape + (3,), K, dtype=float)
+
             def fake_seeding(image_stack, *_args, **_kwargs):
                 h, w = image_stack.shape[:2]
-                return np.ones((h, w, 3), dtype=float)
+                return FakeSeed(h, w)
 
             def fake_recover(delta_sigma_map, theta_map, **_kwargs):
                 h, w = delta_sigma_map.shape

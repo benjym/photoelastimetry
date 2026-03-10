@@ -34,8 +34,8 @@ n_max = 6
 sigma_max = n_max * wavelengths.min() / (C_values.max() * nu_solid * thickness)
 print(f"Max stress for seeding: {sigma_max:.2e} Pa")
 
-n_trials = 100
-snr = 100.0
+n_trials = 2
+snr = 1000000.0
 
 # Define grid
 resolution = 32
@@ -80,7 +80,7 @@ for _ in tqdm(range(n_trials)):
         noisy_images = synthetic_images.copy()
 
     # 2. Seeding / Inversion
-    initial_stress = phase_decomposed_seeding(
+    seed = phase_decomposed_seeding(
         noisy_images,
         wavelengths,
         C_values,
@@ -90,14 +90,10 @@ for _ in tqdm(range(n_trials)):
         sigma_max=sigma_max,
         n_max=n_max,
         # correction_params={"unwrap_angles": True},
-        # K=0.5,
     )
 
-    sxx_est = initial_stress[:, :, 0]
-    syy_est = initial_stress[:, :, 1]
-    txy_est = initial_stress[:, :, 2]
-    delta_sigma_est = np.sqrt((sxx_est - syy_est) ** 2 + 4 * txy_est**2)
-    theta_est = 0.5 * np.arctan2(2 * txy_est, sxx_est - syy_est)
+    delta_sigma_est = seed.delta_sigma
+    theta_est = seed.theta
 
     # 3. Error Calculation (Inside mask)
     err_pd = np.abs(delta_sigma_est - pd_true)

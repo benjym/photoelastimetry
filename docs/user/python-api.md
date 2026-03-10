@@ -44,19 +44,26 @@ print(result["profile_file"])
 ## Direct Mean-Stress Recovery (advanced)
 
 ```python
-import numpy as np
-from photoelastimetry.optimise import stress_to_principal_invariants, recover_mean_stress
+from photoelastimetry.optimise import recover_mean_stress
+from photoelastimetry.seeding import phase_decomposed_seeding
 
-initial_stress = np.load("seeded_stress.npy")  # [H, W, 3]
-delta_sigma, theta = stress_to_principal_invariants(initial_stress)
+seed = phase_decomposed_seeding(
+    image_stack,
+    wavelengths,
+    c_values,
+    nu=1.0,
+    L=0.01,
+    S_i_hat=[1.0, 0.0, 0.0],
+)
 
 wrapper, coeffs = recover_mean_stress(
-    delta_sigma,
-    theta,
+    seed.delta_sigma,
+    seed.theta,
     knot_spacing=8,
     max_iterations=200,
     tolerance=1e-8,
     verbose=True,
+    initial_stress_map=seed.to_stress_map(K=0.5),
 )
 
 sigma_xx, sigma_yy, sigma_xy = wrapper.get_stress_fields(coeffs)

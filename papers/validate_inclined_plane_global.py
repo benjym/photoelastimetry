@@ -56,7 +56,7 @@ print(f"Max shear stress: {np.max(np.abs(true_txy)):.2e} Pa")
 # Use seeding to get initial stress guess
 print("Computing initial stress guess using phase-decomposed seeding...")
 
-initial_stress = phase_decomposed_seeding(
+seed = phase_decomposed_seeding(
     synthetic_images,
     wavelengths,
     C_values,
@@ -65,8 +65,8 @@ initial_stress = phase_decomposed_seeding(
     S_i_hat=S_i_hat,
     sigma_max=None,
     n_max=6,
-    K=0.8,
 )
+initial_stress = seed.to_stress_map(K=0.8)
 print("Initial stress guess computed.")
 
 # Run Global Solver
@@ -128,12 +128,8 @@ print("\n")
 theta_rad = np.deg2rad(theta_deg)
 V_potential = rho * g * (np.sin(theta_rad) * X + np.cos(theta_rad) * Y)
 
-initial_diff = np.sqrt(
-    (initial_stress[:, :, 0] - initial_stress[:, :, 1]) ** 2 + 4 * initial_stress[:, :, 2] ** 2
-)
-initial_theta = 0.5 * np.arctan2(
-    2 * initial_stress[:, :, 2], initial_stress[:, :, 0] - initial_stress[:, :, 1]
-)
+initial_diff = seed.delta_sigma
+initial_theta = seed.theta
 
 recovered_mean_stress = recover_mean_stress(
     initial_diff,

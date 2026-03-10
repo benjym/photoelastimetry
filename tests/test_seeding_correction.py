@@ -1,8 +1,7 @@
 import numpy as np
-import pytest
 
 from photoelastimetry.image import predict_stokes
-from photoelastimetry.seeding import phase_decomposed_seeding
+from photoelastimetry.seeding import PhaseDecomposedSeed, phase_decomposed_seeding, retardance_to_delta_sigma
 
 
 def test_phase_decomposed_seeding_with_correction():
@@ -49,7 +48,7 @@ def test_phase_decomposed_seeding_with_correction():
         data[:, :, i, 3] = I_135[i]
 
     # Run WITHOUT correction (baseline)
-    stress_base = phase_decomposed_seeding(
+    seed_base = phase_decomposed_seeding(
         data, wavelengths, C_values, nu, L, correction_params={"enabled": False}
     )
 
@@ -57,7 +56,7 @@ def test_phase_decomposed_seeding_with_correction():
     # Correction factor should be > 1
     # K = 1/sqrt(0.01 + 0.25) = 1/sqrt(0.26) approx 1.96
 
-    stress_corrected = phase_decomposed_seeding(
+    seed_corrected = phase_decomposed_seeding(
         data,
         wavelengths,
         C_values,
@@ -66,14 +65,11 @@ def test_phase_decomposed_seeding_with_correction():
         correction_params={"enabled": True, "order_param": 0.5, "N": 100.0},
     )
 
-    # Check stress magnitude
-    # Compute principal stress difference from tensor components
-    # sigma_diff = sqrt((sxx-syy)^2 + 4sxy^2)
-    def get_diff(s_map):
-        return np.sqrt((s_map[..., 0] - s_map[..., 1]) ** 2 + 4 * s_map[..., 2] ** 2)
+    assert isinstance(seed_base, PhaseDecomposedSeed)
+    assert isinstance(seed_corrected, PhaseDecomposedSeed)
 
-    diff_base = get_diff(stress_base)
-    diff_corr = get_diff(stress_corrected)
+    diff_base = seed_base.delta_sigma
+    diff_corr = seed_corrected.delta_sigma
 
     # Filter valid pixels (should be all of them)
     mask = diff_base > 1e4
@@ -86,6 +82,13 @@ def test_phase_decomposed_seeding_with_correction():
 
     print(f"Mean ratio: {mean_ratio}, Expected: {expected_factor}")
     assert np.isclose(mean_ratio, expected_factor, rtol=0.01)
+    assert np.allclose(
+        retardance_to_delta_sigma(seed_base.retardance, wavelengths, C_values, nu, L), seed_base.delta_sigma
+    )
+    assert np.allclose(
+        retardance_to_delta_sigma(seed_corrected.retardance, wavelengths, C_values, nu, L),
+        seed_corrected.delta_sigma,
+    )
 
 
 def test_phase_decomposed_seeding_with_diameter():
@@ -95,7 +98,7 @@ def test_phase_decomposed_seeding_with_diameter():
     wavelengths = np.array([650e-9, 550e-9, 450e-9])
     C_values = np.array([2e-12, 2e-12, 2e-12])
 
-    stress_d = phase_decomposed_seeding(
+    seed_d = phase_decomposed_seeding(
         data,
         wavelengths,
         C_values,
@@ -104,5 +107,8 @@ def test_phase_decomposed_seeding_with_diameter():
         correction_params={"enabled": True, "order_param": 0.5, "d": 0.001},  # 1 mm -> N approx 9
     )
 
-    # Just check it runs without error
-    assert stress_d.shape == (H, W, 3)
+    assert isinstance(seed_d, PhaseDecomposedSeed)
+    assert seed_d.retardance.shape == (H, W, 3)
+    assert seed_d.theta.shape == (H, W)
+    assert seed_d.delta_sigma.shape == (H, W)
+    assert seed_d.to_stress_map(K=0.5).shape == (H, W, 3)

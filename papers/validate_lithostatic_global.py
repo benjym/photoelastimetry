@@ -55,7 +55,7 @@ print(f"Max horizontal stress: {np.max(true_sxx):.2e} Pa")
 # Use seeding to get initial stress guess
 print("Computing initial stress guess using phase-decomposed seeding...")
 
-initial_stress = phase_decomposed_seeding(
+seed = phase_decomposed_seeding(
     synthetic_images,
     wavelengths,
     C_values,
@@ -64,9 +64,9 @@ initial_stress = phase_decomposed_seeding(
     S_i_hat=S_i_hat,
     sigma_max=None,
     n_max=6,
-    K=0.8,
     # n_jobs=-1,
 )
+initial_stress = seed.to_stress_map(K=0.8)
 print("Initial stress guess computed.")
 
 # # Run Global Solver
@@ -116,12 +116,8 @@ print("\n")
 # Equilibrium: d(Syy)/dy = rho*g => V = rho*g*y
 V_potential = rho * g * Y
 
-initial_diff = np.sqrt(
-    (initial_stress[:, :, 0] - initial_stress[:, :, 1]) ** 2 + 4 * initial_stress[:, :, 2] ** 2
-)
-initial_theta = 0.5 * np.arctan2(
-    2 * initial_stress[:, :, 2], initial_stress[:, :, 0] - initial_stress[:, :, 1]
-)
+initial_diff = seed.delta_sigma
+initial_theta = seed.theta
 
 recovered_mean_stress = recover_mean_stress(
     initial_diff,
