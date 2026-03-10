@@ -12,6 +12,7 @@ Supported calibration methods:
 
 import json
 import os
+import warnings
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -323,8 +324,8 @@ def validate_calibration_config(config):
         }
 
     load_steps = list(config.get("load_steps", []))
-    if len(load_steps) < 4:
-        raise ValueError("Calibration requires at least 4 load_steps (including no-load).")
+    if len(load_steps) == 0:
+        raise ValueError("Calibration requires at least one load_step.")
 
     normalised_steps = []
     for step in load_steps:
@@ -338,10 +339,24 @@ def validate_calibration_config(config):
     load_zero_tolerance = float(config.get("load_zero_tolerance", 1e-9))
     n_no_load = sum(abs(step["load"]) <= load_zero_tolerance for step in normalised_steps)
     n_loaded = sum(abs(step["load"]) > load_zero_tolerance for step in normalised_steps)
+    if len(normalised_steps) < 4:
+        warnings.warn(
+            "Calibration usually benefits from at least 4 load_steps including a no-load image; "
+            "continuing with the available data may reduce robustness.",
+            stacklevel=2,
+        )
     if n_no_load < 1:
-        raise ValueError("Calibration requires at least one no-load step (load ≈ 0).")
+        warnings.warn(
+            "Calibration usually benefits from at least one no-load step (load ≈ 0); "
+            "continuing without it will use a default initial S_i_hat guess unless one is provided in fit.initial_S_i_hat.",
+            stacklevel=2,
+        )
     if n_loaded < 3:
-        raise ValueError("Calibration requires at least three non-zero load steps.")
+        warnings.warn(
+            "Calibration usually benefits from at least three non-zero load steps; "
+            "continuing with fewer loaded states may reduce identifiability and fit stability.",
+            stacklevel=2,
+        )
 
     fit_cfg = dict(config.get("fit", {}))
     fit_cfg.setdefault("max_points", 6000)
@@ -730,6 +745,11 @@ def _initial_s_i_hat_from_noload(measured_noload):
     return s_i
 
 
+def _default_initial_s_i_hat():
+    """Return a conservative default incoming Stokes state guess."""
+    return np.array([1.0, 0.0, 0.0], dtype=float)
+
+
 def _build_dataset(config):
     """Load calibration images and construct regression dataset."""
     steps = config["load_steps"]
@@ -819,10 +839,15 @@ def _build_dataset(config):
             no_load_measurements.append(measured)
 
     if len(no_load_measurements) == 0:
-        raise ValueError("No no-load measurements were found after processing load steps.")
-
-    noload = np.concatenate(no_load_measurements, axis=0)
-    initial_s_i_hat = _initial_s_i_hat_from_noload(noload)
+        warnings.warn(
+            "No no-load measurements were found after processing load steps; "
+            "using a default initial S_i_hat guess of [1, 0, 0].",
+            stacklevel=2,
+        )
+        initial_s_i_hat = _default_initial_s_i_hat()
+    else:
+        noload = np.concatenate(no_load_measurements, axis=0)
+        initial_s_i_hat = _initial_s_i_hat_from_noload(noload)
 
     dataset = {
         "method": config["method"],

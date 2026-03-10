@@ -372,8 +372,9 @@ def test_validation_errors_for_bad_configuration(tmp_path):
 
     no_noload = dict(config)
     no_noload["load_steps"] = [dict(step, load=abs(step["load"]) + 1.0) for step in config["load_steps"]]
-    with pytest.raises(ValueError, match="no-load"):
-        calibrate.validate_calibration_config(no_noload)
+    with pytest.warns(UserWarning, match="no-load"):
+        validated_no_noload = calibrate.validate_calibration_config(no_noload)
+    assert len(validated_no_noload["load_steps"]) == len(no_noload["load_steps"])
 
     bad_geometry = dict(config)
     bad_geometry["geometry"] = dict(config["geometry"])
@@ -383,8 +384,27 @@ def test_validation_errors_for_bad_configuration(tmp_path):
 
     short_steps = dict(config)
     short_steps["load_steps"] = config["load_steps"][:3]
-    with pytest.raises(ValueError, match="at least 4"):
-        calibrate.validate_calibration_config(short_steps)
+    with pytest.warns(UserWarning, match="at least 4 load_steps"):
+        validated_short = calibrate.validate_calibration_config(short_steps)
+    assert len(validated_short["load_steps"]) == 3
+
+    empty_steps = dict(config)
+    empty_steps["load_steps"] = []
+    with pytest.raises(ValueError, match="at least one load_step"):
+        calibrate.validate_calibration_config(empty_steps)
+
+
+def test_build_dataset_without_noload_uses_default_initial_guess(tmp_path):
+    config, _, _ = _make_synthetic_calibration_case(tmp_path, noisy=False)
+    config["load_steps"] = [dict(step, load=float(index + 1)) for index, step in enumerate(config["load_steps"][:3])]
+
+    with pytest.warns(UserWarning, match="no-load"):
+        validated = calibrate.validate_calibration_config(config)
+
+    with pytest.warns(UserWarning, match="default initial S_i_hat"):
+        dataset = calibrate._build_dataset(validated)
+
+    assert np.allclose(dataset["initial_s_i_hat"], np.array([1.0, 0.0, 0.0]))
 
 
 def test_validation_error_for_inconsistent_image_shapes(tmp_path):
