@@ -104,9 +104,9 @@ def _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=
         "thickness": thickness,
         "nu": 1.0,
         "geometry": {
-            "radius_m": radius_m,
+            "radius_mm": radius_m * 1e3,
+            "radius_px": radius_m * pixels_per_meter,
             "center_px": [cx, cy],
-            "pixels_per_meter": pixels_per_meter,
             "edge_margin_fraction": 0.8,
             "contact_exclusion_fraction": 0.35,
         },
@@ -191,9 +191,9 @@ def test_build_dataset_accepts_raw_recording_directory_load_steps(tmp_path):
         "wavelengths": [650, 550, 450],
         "thickness": 0.01,
         "geometry": {
-            "radius_m": 0.001,
+            "radius_mm": 1.0,
+            "radius_px": 4.0,
             "center_px": [2.0, 2.0],
-            "pixels_per_meter": 4000.0,
         },
         "load_steps": [
             {"image_file": str(recording_dir), "load": 0.0},
@@ -378,8 +378,8 @@ def test_validation_errors_for_bad_configuration(tmp_path):
 
     bad_geometry = dict(config)
     bad_geometry["geometry"] = dict(config["geometry"])
-    bad_geometry["geometry"]["radius_m"] = -0.1
-    with pytest.raises(ValueError, match="radius_m"):
+    bad_geometry["geometry"]["radius_mm"] = -0.1
+    with pytest.raises(ValueError, match="radius_mm"):
         calibrate.validate_calibration_config(bad_geometry)
 
     short_steps = dict(config)
@@ -396,7 +396,9 @@ def test_validation_errors_for_bad_configuration(tmp_path):
 
 def test_build_dataset_without_noload_uses_default_initial_guess(tmp_path):
     config, _, _ = _make_synthetic_calibration_case(tmp_path, noisy=False)
-    config["load_steps"] = [dict(step, load=float(index + 1)) for index, step in enumerate(config["load_steps"][:3])]
+    config["load_steps"] = [
+        dict(step, load=float(index + 1)) for index, step in enumerate(config["load_steps"][:3])
+    ]
 
     with pytest.warns(UserWarning, match="no-load"):
         validated = calibrate.validate_calibration_config(config)

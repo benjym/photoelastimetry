@@ -258,18 +258,25 @@ def validate_calibration_config(config):
 
     geometry = dict(config.get("geometry", {}))
     if method == "brazilian_disk":
-        for key in ("radius_m", "center_px", "pixels_per_meter"):
+        for key in ("radius_mm", "radius_px", "center_px"):
             if key not in geometry:
                 raise ValueError(f"geometry must include '{key}' for method='brazilian_disk'.")
 
-        radius_m = float(geometry["radius_m"])
-        pixels_per_meter = float(geometry["pixels_per_meter"])
+        radius_mm = float(geometry["radius_mm"])
+        radius_px = float(geometry["radius_px"])
         center_px = np.asarray(geometry["center_px"], dtype=float)
+        radius_m = radius_mm * 1e-3
 
+        if radius_mm <= 0:
+            raise ValueError("geometry.radius_mm must be positive.")
+        if radius_px <= 0:
+            raise ValueError("geometry.radius_px must be positive.")
         if radius_m <= 0:
-            raise ValueError("geometry.radius_m must be positive.")
+            raise ValueError("geometry.radius_mm must be positive.")
+
+        pixels_per_meter = radius_px / radius_m
         if pixels_per_meter <= 0:
-            raise ValueError("geometry.pixels_per_meter must be positive.")
+            raise ValueError("Derived pixels_per_meter must be positive from geometry.radius_mm/radius_px.")
         if center_px.size != 2:
             raise ValueError("geometry.center_px must have two elements [cx, cy].")
 
@@ -281,6 +288,8 @@ def validate_calibration_config(config):
             raise ValueError("geometry.contact_exclusion_fraction must be in [0, 1).")
 
         geometry_validated = {
+            "radius_mm": radius_mm,
+            "radius_px": radius_px,
             "radius_m": radius_m,
             "center_px": center_px,
             "pixels_per_meter": pixels_per_meter,
@@ -556,14 +565,11 @@ def interactive_geometry_wizard(config):
         from matplotlib.patches import Circle
         from matplotlib.widgets import Button
 
-        ppm = geometry.get("pixels_per_meter")
-        if ppm is None:
+        radius_mm = float(geometry.get("radius_mm", 0.0))
+        if radius_mm <= 0:
             raise ValueError(
-                "geometry.pixels_per_meter is required for interactive disk calibration to convert pixels to meters."
+                "geometry.radius_mm is required and must be positive for interactive disk calibration."
             )
-        ppm = float(ppm)
-        if ppm <= 0:
-            raise ValueError("geometry.pixels_per_meter must be positive.")
         instruction = ax.text(
             0.01,
             0.99,
@@ -608,8 +614,12 @@ def interactive_geometry_wizard(config):
                     circle_patch.center = (cx, cy)
                     circle_patch.radius = radius_px
                     circle_patch.set_visible(True)
+                    radius_m = radius_mm * 1e-3
+                    ppm = radius_px / radius_m
                     geom_candidate = {
-                        "radius_m": radius_px / ppm,
+                        "radius_mm": radius_mm,
+                        "radius_px": radius_px,
+                        "radius_m": radius_m,
                         "center_px": np.array([cx, cy], dtype=float),
                         "pixels_per_meter": ppm,
                         "edge_margin_fraction": float(geometry.get("edge_margin_fraction", 0.9)),
@@ -617,7 +627,7 @@ def interactive_geometry_wizard(config):
                     }
                     roi_pixels = _disk_roi_pixel_count(preview.shape[0], preview.shape[1], geom_candidate)
                     fit_text.set_text(
-                        f"n={len(points)}  center=({cx:.1f}, {cy:.1f})  radius={radius_px:.1f}px  roi_pixels={roi_pixels}"
+                        f"n={len(points)}  center=({cx:.1f}, {cy:.1f})  radius={radius_px:.1f}px ({radius_mm:.3f} mm)  roi_pixels={roi_pixels}"
                     )
                     state["fit"] = (cx, cy, radius_px, roi_pixels)
 
@@ -692,7 +702,7 @@ def interactive_geometry_wizard(config):
 
         cx, cy, radius_px, _roi_pixels = state["fit"]
         geometry["center_px"] = [cx, cy]
-        geometry["radius_m"] = radius_px / ppm
+        geometry["radius_px"] = radius_px
     else:
         points = plt.ginput(2, timeout=0)
         plt.close(fig)
@@ -1102,9 +1112,9 @@ def _write_report(report_path, profile, config):
     if config["method"] == "brazilian_disk":
         lines.extend(
             [
-                f"- radius_m: `{config['geometry']['radius_m']}`",
+                f"- radius_mm: `{config['geometry']['radius_mm']}`",
+                f"- radius_px: `{config['geometry']['radius_px']}`",
                 f"- center_px: `{config['geometry']['center_px'].tolist()}`",
-                f"- pixels_per_meter: `{config['geometry']['pixels_per_meter']}`",
             ]
         )
     else:
@@ -1211,6 +1221,20 @@ def _write_visual_diagnostics_plot(plot_path, dataset, fit_result):
     maps = _build_visual_diagnostics(dataset, fit_result)
     roi_mask = np.asarray(dataset["roi_mask"], dtype=bool)
 
+    y_roi, x_roi = np.where(roi_mask)
+    if y_roi.size > 0 and x_roi.size > 0:
+        # Crop to the relevant ROI neighborhood to make diagnostics easier to inspect.
+        pad = 8
+        y0 = max(int(y_roi.min()) - pad, 0)
+        y1 = min(int(y_roi.max()) + pad + 1, roi_mask.shape[0])
+        x0 = max(int(x_roi.min()) - pad, 0)
+        x1 = min(int(x_roi.max()) + pad + 1, roi_mask.shape[1])
+        roi_mask_plot = roi_mask[y0:y1, x0:x1]
+    else:
+        y0 = x0 = 0
+        y1, x1 = roi_mask.shape
+        roi_mask_plot = roi_mask
+
     from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
     from matplotlib.figure import Figure
 
@@ -1218,17 +1242,17 @@ def _write_visual_diagnostics_plot(plot_path, dataset, fit_result):
     _canvas = FigureCanvas(fig)
     axes = fig.subplots(2, 3)
     entries = [
-        ("Measured I0", maps["measured_i0"], "gray"),
-        ("Synthetic I0", maps["predicted_i0"], "gray"),
-        ("|I0 residual|", maps["i0_residual_abs"], "magma"),
-        ("Measured S1_hat", maps["measured_s1"], "coolwarm"),
-        ("Synthetic S1_hat", maps["predicted_s1"], "coolwarm"),
-        ("Stokes residual magnitude", maps["stokes_residual_mag"], "magma"),
+        ("Measured I0", maps["measured_i0"][y0:y1, x0:x1], "gray"),
+        ("Synthetic I0", maps["predicted_i0"][y0:y1, x0:x1], "gray"),
+        ("|I0 residual|", maps["i0_residual_abs"][y0:y1, x0:x1], "magma"),
+        ("Measured S1_hat", maps["measured_s1"][y0:y1, x0:x1], "coolwarm"),
+        ("Synthetic S1_hat", maps["predicted_s1"][y0:y1, x0:x1], "coolwarm"),
+        ("Stokes residual magnitude", maps["stokes_residual_mag"][y0:y1, x0:x1], "magma"),
     ]
 
     for ax, (title, arr, cmap) in zip(axes.ravel(), entries):
         im = ax.imshow(arr, cmap=cmap)
-        ax.contour(roi_mask.astype(float), levels=[0.5], colors="w", linewidths=0.7)
+        ax.contour(roi_mask_plot.astype(float), levels=[0.5], colors="w", linewidths=0.7)
         ax.set_title(title, fontsize=10)
         ax.set_axis_off()
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)

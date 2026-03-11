@@ -135,7 +135,7 @@ Required:
 
 Method-specific required geometry:
 
-- `brazilian_disk`: `radius_m`, `center_px`, `pixels_per_meter`
+- `brazilian_disk`: `radius_mm`, `radius_px`, `center_px`
 - `coupon_test`: `gauge_roi_px`, `coupon_width_m`
 
 Common optional keys:

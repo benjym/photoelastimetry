@@ -3,17 +3,18 @@
   wavelengths: [650, 550, 450],
   thickness: 0.01,
   geometry: {
-    // radius_m: 0.01,
-    // center_px: [488, 415],
-    pixels_per_meter: 17000,
-    edge_margin_fraction: 0.9,
-    contact_exclusion_fraction: 0.12
+    radius_mm: 5.0,
+    radius_px: 97,
+    center_px: [823, 212],
+    edge_margin_fraction: 0.2,
+    contact_exclusion_fraction: 0.0
   },
   load_steps: [
-    {load: 0.0, image_file:   "images/2025_04_15/2025_04_15_15_39_38_342/02002060_diskSaving1/0000000/frame0000000000.raw"},
-    {load: 150.0, image_file: "images/2025_04_15/2025_04_15_15_40_24_898/02002060_diskSaving1/0000000/frame0000000000.raw"},
-    {load: 300.0, image_file: "images/2025_04_15/2025_04_15_15_41_09_580/02002060_diskSaving1/0000000/frame0000000000.raw"},
-    {load: 450.0, image_file: "images/2025_04_15/2025_04_15_15_41_53_791/02002060_diskSaving1/0000000/frame0000000000.raw"}
+    // {load: 0.0, image_file: "/Volumes/PRJ-PSM/eCaptureProData/2026_03_11/2026_03_11_15_37_20_964_BRIGHT/02002060_diskSaving1/"},
+    {load: 35.85, image_file: "/Volumes/PRJ-PSM/eCaptureProData/2026_03_11/2026_03_11_15_26_19_376_35.85/02002060_diskSaving1/"},
+    {load: 43.50, image_file: "/Volumes/PRJ-PSM/eCaptureProData/2026_03_11/2026_03_11_15_28_28_595_43.50/02002060_diskSaving1/"},
+    {load: 57.10, image_file: "/Volumes/PRJ-PSM/eCaptureProData/2026_03_11/2026_03_11_15_31_35_644_57.10/02002060_diskSaving1/"},
+    {load: 65.51, image_file: "/Volumes/PRJ-PSM/eCaptureProData/2026_03_11/2026_03_11_15_33_05_674_65.51/02002060_diskSaving1/"}
   ],
 //   dark_frame_file: "calib/dark.npy",
 //   blank_frame_file: "calib/blank.npy",

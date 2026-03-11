@@ -14,7 +14,7 @@ Fit calibration profile values (`C`, `S_i_hat`, blank correction) from known-loa
   - at least 1 no-load step (`load ~= 0`)
   - at least 3 non-zero load steps
 - Method-specific geometry:
-  - `brazilian_disk`: `radius_m`, `center_px`, `pixels_per_meter`
+  - `brazilian_disk`: `radius_mm`, `radius_px`, `center_px`
   - `coupon_test`: `gauge_roi_px`, `coupon_width_m`
 
 ## Example Config (Brazilian disk)
@@ -25,9 +25,9 @@ Fit calibration profile values (`C`, `S_i_hat`, blank correction) from known-loa
   wavelengths: [650, 550, 450],
   thickness: 0.01,
   geometry: {
-    radius_m: 0.01,
+    radius_mm: 10.0,
+    radius_px: 200,
     center_px: [256, 256],
-    pixels_per_meter: 20000,
     edge_margin_fraction: 0.9,
     contact_exclusion_fraction: 0.12
   },
