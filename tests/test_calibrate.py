@@ -203,6 +203,7 @@ def test_build_dataset_accepts_raw_recording_directory_load_steps(tmp_path):
             {"image_file": str(recording_dir), "load": 2.0},
             {"image_file": str(recording_dir), "load": 3.0},
         ],
+        "fit": {"S_i_hat": [1.0, 0.0, 0.0]},
     }
 
     validated = calibrate.validate_calibration_config(config)
@@ -354,7 +355,6 @@ def test_fit_recovers_c_with_fixed_s_i_hat_from_synthetic_disk_data(tmp_path, no
     assert np.allclose(c_fit, c_true, rtol=0.25, atol=0.0)
     assert np.allclose(s_fit, calibrate._normalise_s_i_hat(s_true), atol=1e-12)
     assert profile["fit_metrics"]["success"]
-    assert profile["fit_metrics"]["fallback_used"] is False
 
 
 def test_blank_correction_coefficients_and_application():
@@ -414,21 +414,32 @@ def test_validation_errors_for_bad_configuration(tmp_path):
     with pytest.raises(ValueError, match="at least one load_step"):
         calibrate.validate_calibration_config(empty_steps)
 
+    missing_s_i_hat = dict(config)
+    missing_s_i_hat["fit"] = dict(config["fit"])
+    missing_s_i_hat["fit"].pop("S_i_hat")
+    with pytest.raises(ValueError, match="fit.S_i_hat"):
+        calibrate.validate_calibration_config(missing_s_i_hat)
 
-def test_build_dataset_without_noload_uses_default_initial_guess(tmp_path):
+    legacy_s_i_hat = dict(config)
+    legacy_s_i_hat["fit"] = dict(config["fit"])
+    legacy_s_i_hat["fit"].pop("S_i_hat")
+    legacy_s_i_hat["fit"]["initial_S_i_hat"] = [0.8, 0.1, 0.0]
+    with pytest.raises(ValueError, match="fit.S_i_hat"):
+        calibrate.validate_calibration_config(legacy_s_i_hat)
+
+
+def test_validation_without_noload_still_accepts_explicit_s_i_hat(tmp_path):
     config, _, _ = _make_synthetic_calibration_case(tmp_path)
     config["load_steps"] = [
         dict(step, load=float(index + 1)) for index, step in enumerate(config["load_steps"][:3])
     ]
-    config["fit"].pop("S_i_hat")
 
     with pytest.warns(UserWarning, match="no-load"):
         validated = calibrate.validate_calibration_config(config)
 
-    with pytest.warns(UserWarning, match="default fixed S_i_hat"):
-        dataset = calibrate._build_dataset(validated)
+    dataset = calibrate._build_dataset(validated)
 
-    assert np.allclose(dataset["initial_s_i_hat"], np.array([1.0, 0.0, 0.0]))
+    assert dataset["loads"].shape == (3,)
 
 
 def test_validation_error_for_inconsistent_image_shapes(tmp_path):

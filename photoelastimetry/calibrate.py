@@ -1,9 +1,9 @@
 """
 Calibration workflows for photoelastimetry experiments.
 
-This module fits per-wavelength stress-optic coefficients (C) for a fixed
-incoming polarisation state (S_i_hat), and optional detector blank correction
-from a multi-load calibration sequence.
+This module fits per-wavelength stress-optic coefficients (C) for an explicit
+fixed incoming polarisation state (S_i_hat), and optional detector blank
+correction from a multi-load calibration sequence.
 
 Supported calibration methods:
 - ``brazilian_disk``: diametrically-loaded disk with analytical stress field.
@@ -357,7 +357,7 @@ def validate_calibration_config(config):
     if n_no_load < 1:
         warnings.warn(
             "Calibration usually benefits from at least one no-load step (load ≈ 0); "
-            "continuing without it will use a default fixed S_i_hat unless one is provided in fit.S_i_hat or fit.initial_S_i_hat.",
+            "continuing without it may reduce robustness.",
             stacklevel=2,
         )
     if n_loaded < 3:
@@ -368,12 +368,19 @@ def validate_calibration_config(config):
         )
 
     fit_cfg = dict(config.get("fit", {}))
+    if "S_i_hat" not in fit_cfg:
+        raise ValueError("Calibration config must include fit.S_i_hat.")
+    fit_s_i_hat = np.asarray(fit_cfg["S_i_hat"], dtype=float)
+    if fit_s_i_hat.shape != (3,):
+        raise ValueError(f"fit.S_i_hat must have shape (3,), got {fit_s_i_hat.shape}.")
+
     fit_cfg.setdefault("max_points", 6000)
     fit_cfg.setdefault("loss", "soft_l1")
     fit_cfg.setdefault("f_scale", 0.05)
     fit_cfg.setdefault("max_nfev", 300)
     fit_cfg.setdefault("seed", 0)
     fit_cfg.setdefault("prior_weight", 0.0)
+    fit_cfg["S_i_hat"] = fit_s_i_hat.tolist()
 
     output_profile = config.get("output_profile", "calibration_profile.json5")
     output_report = config.get("output_report", "calibration_report.md")
@@ -738,27 +745,6 @@ def _prepare_sampling_points(roi_mask, max_points, seed):
     return y_idx, x_idx
 
 
-def _initial_s_i_hat_from_noload(measured_noload):
-    """Estimate a fallback incoming Stokes state from no-load measurements."""
-    s1 = float(np.median(measured_noload[..., 0]))
-    s2 = float(np.median(measured_noload[..., 1]))
-    magnitude_sq = s1**2 + s2**2
-    s3 = float(np.sqrt(max(0.0, 1.0 - magnitude_sq)))
-    s_i = np.array([s1, s2, s3], dtype=float)
-
-    norm = np.linalg.norm(s_i)
-    if norm < 1e-12:
-        return np.array([1.0, 0.0, 0.0], dtype=float)
-    if norm > 1.0:
-        s_i = s_i / norm
-    return s_i
-
-
-def _default_initial_s_i_hat():
-    """Return a conservative default incoming Stokes state guess."""
-    return np.array([1.0, 0.0, 0.0], dtype=float)
-
-
 def _build_dataset(config):
     """Load calibration images and construct regression dataset."""
     steps = config["load_steps"]
@@ -813,8 +799,6 @@ def _build_dataset(config):
     sigma_yy_steps = []
     sigma_xy_steps = []
 
-    no_load_tolerance = config["load_zero_tolerance"]
-    no_load_measurements = []
     diagnostic_step_index = int(np.argmax(np.abs(loads)))
     diagnostic_image = corrected_images[diagnostic_step_index]
 
@@ -844,20 +828,6 @@ def _build_dataset(config):
             sigma_yy_steps.append(sigma_yy)
             sigma_xy_steps.append(sigma_xy)
 
-        if abs(load) <= no_load_tolerance:
-            no_load_measurements.append(measured)
-
-    if len(no_load_measurements) == 0:
-        warnings.warn(
-            "No no-load measurements were found after processing load steps; "
-            "using a default fixed S_i_hat of [1, 0, 0].",
-            stacklevel=2,
-        )
-        initial_s_i_hat = _default_initial_s_i_hat()
-    else:
-        noload = np.concatenate(no_load_measurements, axis=0)
-        initial_s_i_hat = _initial_s_i_hat_from_noload(noload)
-
     dataset = {
         "method": config["method"],
         "wavelengths": config["wavelengths"],
@@ -875,7 +845,6 @@ def _build_dataset(config):
         # Backward-compatible key retained for previous diagnostics consumers.
         "disk_mask": model_mask,
         "blank_correction": blank_correction,
-        "initial_s_i_hat": initial_s_i_hat,
         "X": X,
         "Y": Y,
         "geometry": config["geometry"],
@@ -897,48 +866,26 @@ def _normalise_s_i_hat(s_i_hat):
     return s_i
 
 
-def _decode_params(params, n_channels, fixed_s3=None):
-    """Decode parameter vector into C and S_i_hat."""
-    C = np.asarray(params[:n_channels], dtype=float)
-    if fixed_s3 is None:
-        s_i_hat = np.asarray(params[n_channels : n_channels + 3], dtype=float)
-    else:
-        s_i_hat = np.array([params[n_channels], params[n_channels + 1], fixed_s3], dtype=float)
-    s_i_hat = _normalise_s_i_hat(s_i_hat)
-    return C, s_i_hat
-
-
-def _resolve_fixed_s_i_hat(fit_config, dataset):
+def _resolve_fixed_s_i_hat(fit_config):
     """Resolve the fixed incoming Stokes state used during calibration."""
-    if "S_i_hat" in fit_config:
-        source = fit_config["S_i_hat"]
-    elif "initial_S_i_hat" in fit_config:
-        source = fit_config["initial_S_i_hat"]
-    else:
-        source = dataset["initial_s_i_hat"]
-    s_i_hat = np.asarray(source, dtype=float)
-    if s_i_hat.size == 2:
-        s_i_hat = np.append(s_i_hat, 0.0)
-    if s_i_hat.size != 3:
-        raise ValueError(f"fit.S_i_hat must have length 2 or 3, got {s_i_hat.size}.")
+    s_i_hat = np.asarray(fit_config["S_i_hat"], dtype=float)
+    if s_i_hat.shape != (3,):
+        raise ValueError(f"fit.S_i_hat must have shape (3,), got {s_i_hat.shape}.")
     return _normalise_s_i_hat(s_i_hat)
 
 
-def calibration_residuals(params, dataset, fixed_s3=None, fixed_s_i_hat=None):
+def calibration_residuals(params, dataset, fixed_s_i_hat):
     """
     Compute calibration residuals for least-squares fitting.
 
     Parameters
     ----------
     params : ndarray
-        Parameter vector containing C values and S_i_hat components.
+        Parameter vector containing C values.
     dataset : dict
         Dataset dictionary from `_build_dataset`.
-    fixed_s3 : float, optional
-        If provided, S3 is fixed and only S1/S2 are optimised.
-    fixed_s_i_hat : array-like, optional
-        If provided, use this full fixed source state instead of decoding
-        Stokes components from `params`.
+    fixed_s_i_hat : array-like
+        Fixed source state used for the forward model.
 
     Returns
     -------
@@ -946,12 +893,8 @@ def calibration_residuals(params, dataset, fixed_s3=None, fixed_s_i_hat=None):
         1D residual vector.
     """
     wavelengths = dataset["wavelengths"]
-    n_channels = wavelengths.size
-    C = np.asarray(params[:n_channels], dtype=float)
-    if fixed_s_i_hat is None:
-        _, s_i_hat = _decode_params(params, n_channels, fixed_s3=fixed_s3)
-    else:
-        s_i_hat = _normalise_s_i_hat(fixed_s_i_hat)
+    C = np.asarray(params[: wavelengths.size], dtype=float)
+    s_i_hat = _normalise_s_i_hat(fixed_s_i_hat)
 
     residual_chunks = []
     for measured, sigma_xx, sigma_yy, sigma_xy in zip(
@@ -1001,7 +944,7 @@ def fit_calibration_parameters(dataset, fit_config):
     init_c = _as_float_array(
         fit_config.get("initial_C", np.full(n_channels, 3e-9)), expected_length=n_channels, name="initial_C"
     )
-    fixed_s_i_hat = _resolve_fixed_s_i_hat(fit_config, dataset)
+    fixed_s_i_hat = _resolve_fixed_s_i_hat(fit_config)
 
     c_relative_bounds = fit_config.get("c_relative_bounds")
     if c_relative_bounds is not None:
@@ -1049,9 +992,6 @@ def fit_calibration_parameters(dataset, fit_config):
         "n_residuals": int(residual.size),
         "n_samples": int(dataset["sample_y"].size),
         "n_load_steps": int(dataset["loads"].size),
-        "fallback_used": False,
-        "fallback_reason": None,
-        "s3_identifiability_ratio": None,
     }
 
     return {
