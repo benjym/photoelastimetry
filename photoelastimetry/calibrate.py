@@ -910,7 +910,12 @@ def _decode_params(params, n_channels, fixed_s3=None):
 
 def _resolve_fixed_s_i_hat(fit_config, dataset):
     """Resolve the fixed incoming Stokes state used during calibration."""
-    source = fit_config.get("S_i_hat", fit_config.get("initial_S_i_hat", dataset["initial_s_i_hat"]))
+    if "S_i_hat" in fit_config:
+        source = fit_config["S_i_hat"]
+    elif "initial_S_i_hat" in fit_config:
+        source = fit_config["initial_S_i_hat"]
+    else:
+        source = dataset["initial_s_i_hat"]
     s_i_hat = np.asarray(source, dtype=float)
     if s_i_hat.size == 2:
         s_i_hat = np.append(s_i_hat, 0.0)
