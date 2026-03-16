@@ -1,9 +1,9 @@
 """
 Calibration workflows for photoelastimetry experiments.
 
-This module fits per-wavelength stress-optic coefficients (C), incoming
-polarisation state (S_i_hat), and optional detector blank correction from a
-multi-load calibration sequence.
+This module fits per-wavelength stress-optic coefficients (C) for a fixed
+incoming polarisation state (S_i_hat), and optional detector blank correction
+from a multi-load calibration sequence.
 
 Supported calibration methods:
 - ``brazilian_disk``: diametrically-loaded disk with analytical stress field.
@@ -357,7 +357,7 @@ def validate_calibration_config(config):
     if n_no_load < 1:
         warnings.warn(
             "Calibration usually benefits from at least one no-load step (load ≈ 0); "
-            "continuing without it will use a default initial S_i_hat guess unless one is provided in fit.initial_S_i_hat.",
+            "continuing without it will use a default fixed S_i_hat unless one is provided in fit.S_i_hat or fit.initial_S_i_hat.",
             stacklevel=2,
         )
     if n_loaded < 3:
@@ -373,7 +373,6 @@ def validate_calibration_config(config):
     fit_cfg.setdefault("f_scale", 0.05)
     fit_cfg.setdefault("max_nfev", 300)
     fit_cfg.setdefault("seed", 0)
-    fit_cfg.setdefault("s3_identifiability_threshold", 0.02)
     fit_cfg.setdefault("prior_weight", 0.0)
 
     output_profile = config.get("output_profile", "calibration_profile.json5")
@@ -740,7 +739,7 @@ def _prepare_sampling_points(roi_mask, max_points, seed):
 
 
 def _initial_s_i_hat_from_noload(measured_noload):
-    """Estimate initial incoming Stokes state from no-load measurements."""
+    """Estimate a fallback incoming Stokes state from no-load measurements."""
     s1 = float(np.median(measured_noload[..., 0]))
     s2 = float(np.median(measured_noload[..., 1]))
     magnitude_sq = s1**2 + s2**2
@@ -851,7 +850,7 @@ def _build_dataset(config):
     if len(no_load_measurements) == 0:
         warnings.warn(
             "No no-load measurements were found after processing load steps; "
-            "using a default initial S_i_hat guess of [1, 0, 0].",
+            "using a default fixed S_i_hat of [1, 0, 0].",
             stacklevel=2,
         )
         initial_s_i_hat = _default_initial_s_i_hat()
@@ -909,7 +908,18 @@ def _decode_params(params, n_channels, fixed_s3=None):
     return C, s_i_hat
 
 
-def calibration_residuals(params, dataset, fixed_s3=None):
+def _resolve_fixed_s_i_hat(fit_config, dataset):
+    """Resolve the fixed incoming Stokes state used during calibration."""
+    source = fit_config.get("S_i_hat", fit_config.get("initial_S_i_hat", dataset["initial_s_i_hat"]))
+    s_i_hat = np.asarray(source, dtype=float)
+    if s_i_hat.size == 2:
+        s_i_hat = np.append(s_i_hat, 0.0)
+    if s_i_hat.size != 3:
+        raise ValueError(f"fit.S_i_hat must have length 2 or 3, got {s_i_hat.size}.")
+    return _normalise_s_i_hat(s_i_hat)
+
+
+def calibration_residuals(params, dataset, fixed_s3=None, fixed_s_i_hat=None):
     """
     Compute calibration residuals for least-squares fitting.
 
@@ -921,6 +931,9 @@ def calibration_residuals(params, dataset, fixed_s3=None):
         Dataset dictionary from `_build_dataset`.
     fixed_s3 : float, optional
         If provided, S3 is fixed and only S1/S2 are optimised.
+    fixed_s_i_hat : array-like, optional
+        If provided, use this full fixed source state instead of decoding
+        Stokes components from `params`.
 
     Returns
     -------
@@ -929,7 +942,11 @@ def calibration_residuals(params, dataset, fixed_s3=None):
     """
     wavelengths = dataset["wavelengths"]
     n_channels = wavelengths.size
-    C, s_i_hat = _decode_params(params, n_channels, fixed_s3=fixed_s3)
+    C = np.asarray(params[:n_channels], dtype=float)
+    if fixed_s_i_hat is None:
+        _, s_i_hat = _decode_params(params, n_channels, fixed_s3=fixed_s3)
+    else:
+        s_i_hat = _normalise_s_i_hat(fixed_s_i_hat)
 
     residual_chunks = []
     for measured, sigma_xx, sigma_yy, sigma_xy in zip(
@@ -959,7 +976,7 @@ def calibration_residuals(params, dataset, fixed_s3=None):
 
 def fit_calibration_parameters(dataset, fit_config):
     """
-    Fit C and S_i_hat from calibration dataset.
+    Fit C from calibration dataset with fixed S_i_hat.
 
     Parameters
     ----------
@@ -971,7 +988,7 @@ def fit_calibration_parameters(dataset, fit_config):
     Returns
     -------
     dict
-        Fit results containing estimated C, S_i_hat, metrics, and optimizer state.
+        Fit results containing estimated C, fixed S_i_hat, metrics, and optimizer state.
     """
     wavelengths = dataset["wavelengths"]
     n_channels = wavelengths.size
@@ -979,13 +996,7 @@ def fit_calibration_parameters(dataset, fit_config):
     init_c = _as_float_array(
         fit_config.get("initial_C", np.full(n_channels, 3e-9)), expected_length=n_channels, name="initial_C"
     )
-    init_s = np.asarray(fit_config.get("initial_S_i_hat", dataset["initial_s_i_hat"]), dtype=float)
-    if init_s.size == 2:
-        init_s = np.append(init_s, 0.0)
-    if init_s.size != 3:
-        raise ValueError(f"fit.initial_S_i_hat must have length 2 or 3, got {init_s.size}.")
-
-    init_s = _normalise_s_i_hat(init_s)
+    fixed_s_i_hat = _resolve_fixed_s_i_hat(fit_config, dataset)
 
     c_relative_bounds = fit_config.get("c_relative_bounds")
     if c_relative_bounds is not None:
@@ -1001,70 +1012,26 @@ def fit_calibration_parameters(dataset, fit_config):
         c_lower = np.full(n_channels, 1e-15)
         c_upper = np.full(n_channels, 1e-4)
 
-    x0_full = np.concatenate([init_c, init_s], axis=0)
-    lb_full = np.concatenate([c_lower, np.full(3, -1.0)])
-    ub_full = np.concatenate([c_upper, np.full(3, 1.0)])
+    x0 = init_c.copy()
     prior_weight = float(fit_config.get("prior_weight", 0.0))
 
-    def residual_full(params):
-        residual = calibration_residuals(params, dataset, fixed_s3=None)
+    def residual_c_only(params):
+        residual = calibration_residuals(params, dataset, fixed_s_i_hat=fixed_s_i_hat)
         if prior_weight > 0:
-            prior = prior_weight * (params - x0_full)
+            prior = prior_weight * (params - x0)
             return np.concatenate([residual, prior], axis=0)
         return residual
 
-    result_full = least_squares(
-        residual_full,
-        x0_full,
-        bounds=(lb_full, ub_full),
+    result = least_squares(
+        residual_c_only,
+        x0,
+        bounds=(c_lower, c_upper),
         loss=fit_config["loss"],
         f_scale=float(fit_config["f_scale"]),
         max_nfev=int(fit_config["max_nfev"]),
     )
-
-    col_norms = (
-        np.linalg.norm(result_full.jac, axis=0) if result_full.jac.size > 0 else np.zeros_like(x0_full)
-    )
-    reference_norm = np.median(col_norms[:-1]) if col_norms.size > 1 else 0.0
-    s3_ratio = float(col_norms[-1] / max(reference_norm, 1e-12)) if col_norms.size > 0 else 0.0
-
-    fallback = False
-    fallback_reason = None
-    threshold = float(fit_config.get("s3_identifiability_threshold", 0.02))
-
-    if (not result_full.success) or (s3_ratio < threshold):
-        fallback = True
-        fallback_reason = "s3_identifiability" if s3_ratio < threshold else "full_fit_failed"
-
-        if fallback_reason == "s3_identifiability":
-            # If S3 is unidentifiable, restart fixed-S3 fit from the configured
-            # initial guess to avoid inheriting unstable full-model updates.
-            x0_fix = np.concatenate([init_c, init_s[:2]], axis=0)
-        else:
-            c_guess, s_guess = _decode_params(result_full.x, n_channels, fixed_s3=None)
-            x0_fix = np.concatenate([c_guess, s_guess[:2]], axis=0)
-        lb_fix = np.concatenate([c_lower, np.full(2, -1.0)])
-        ub_fix = np.concatenate([c_upper, np.full(2, 1.0)])
-
-        def residual_fixed(params):
-            residual = calibration_residuals(params, dataset, fixed_s3=0.0)
-            if prior_weight > 0:
-                prior = prior_weight * (params - x0_fix)
-                return np.concatenate([residual, prior], axis=0)
-            return residual
-
-        result = least_squares(
-            residual_fixed,
-            x0_fix,
-            bounds=(lb_fix, ub_fix),
-            loss=fit_config["loss"],
-            f_scale=float(fit_config["f_scale"]),
-            max_nfev=int(fit_config["max_nfev"]),
-        )
-        C_fit, S_fit = _decode_params(result.x, n_channels, fixed_s3=0.0)
-    else:
-        result = result_full
-        C_fit, S_fit = _decode_params(result.x, n_channels, fixed_s3=None)
+    C_fit = np.asarray(result.x[:n_channels], dtype=float)
+    S_fit = fixed_s_i_hat
 
     residual = result.fun
     fit_metrics = {
@@ -1077,9 +1044,9 @@ def fit_calibration_parameters(dataset, fit_config):
         "n_residuals": int(residual.size),
         "n_samples": int(dataset["sample_y"].size),
         "n_load_steps": int(dataset["loads"].size),
-        "fallback_used": bool(fallback),
-        "fallback_reason": fallback_reason,
-        "s3_identifiability_ratio": float(s3_ratio),
+        "fallback_used": False,
+        "fallback_reason": None,
+        "s3_identifiability_ratio": None,
     }
 
     return {

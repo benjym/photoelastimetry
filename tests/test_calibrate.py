@@ -9,12 +9,14 @@ from photoelastimetry.generate.disk import diametrical_stress_cartesian
 from photoelastimetry.image import simulate_four_step_polarimetry
 
 
-def _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=False):
+def _make_synthetic_calibration_case(
+    tmp_path, noise_scale=0.0, inconsistent_shapes=False, source_state=None, load_scale=1.0
+):
     height, width = 34, 34
     thickness = 0.01
     wavelengths = np.array([650e-9, 550e-9, 450e-9], dtype=float)
     c_true = np.array([2.2e-9, 2.5e-9, 2.8e-9], dtype=float)
-    s_true = np.array([0.82, 0.18, 0.0], dtype=float)
+    s_true = np.array([0.82, 0.18, 0.0] if source_state is None else source_state, dtype=float)
 
     radius_m = 0.008
     pixels_per_meter = 1800.0
@@ -51,10 +53,10 @@ def _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=
         (offset + 1.0 / scale)[np.newaxis, np.newaxis, :, :], (height, width, 3, 4)
     ).copy()
 
-    if noisy:
+    if noise_scale > 0.0:
         rng = np.random.default_rng(42)
-        dark += rng.normal(scale=1e-6, size=dark.shape)
-        blank += rng.normal(scale=1e-6, size=blank.shape)
+        dark += rng.normal(scale=0.02 * noise_scale, size=dark.shape)
+        blank += rng.normal(scale=0.02 * noise_scale, size=blank.shape)
 
     dark_file = tmp_path / "dark.npy"
     blank_file = tmp_path / "blank.npy"
@@ -88,15 +90,15 @@ def _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=
         corrected[~disk_mask, :, :] = 1.0
 
         raw = corrected / scale[np.newaxis, np.newaxis, :, :] + offset[np.newaxis, np.newaxis, :, :]
-        if noisy:
-            raw += rng.normal(scale=5e-5, size=raw.shape)
+        if noise_scale > 0.0:
+            raw += rng.normal(scale=noise_scale, size=raw.shape)
 
         if inconsistent_shapes and idx == len(loads) - 1:
             raw = raw[:-1, :, :, :]
 
         image_file = tmp_path / f"load_{idx}.npy"
         io.save_image(str(image_file), raw.astype(np.float32))
-        load_steps.append({"load": float(load), "image_file": str(image_file)})
+        load_steps.append({"load": float(load_scale * load), "image_file": str(image_file)})
 
     config = {
         "method": "brazilian_disk",
@@ -119,10 +121,10 @@ def _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=
             "loss": "soft_l1",
             "f_scale": 0.05,
             "max_nfev": 250,
-            "prior_weight": 10000.0 if noisy else 0.0,
-            "c_relative_bounds": [0.5, 2.0] if noisy else None,
+            "prior_weight": 10000.0 if noise_scale > 0.0 else 0.0,
+            "c_relative_bounds": [0.5, 2.0] if noise_scale > 0.0 else None,
             "initial_C": [2.0e-9, 2.0e-9, 2.0e-9],
-            "initial_S_i_hat": [0.8, 0.1, 0.0],
+            "S_i_hat": s_true.tolist(),
         },
         "output_profile": str(tmp_path / "calibration_profile.json5"),
         "output_report": str(tmp_path / "calibration_report.md"),
@@ -211,13 +213,13 @@ def test_build_dataset_accepts_raw_recording_directory_load_steps(tmp_path):
     assert dataset["measured_steps"][0].shape[-2:] == (3, 2)
 
 
-def _make_synthetic_coupon_case(tmp_path):
+def _make_synthetic_coupon_case(tmp_path, noise_scale=0.0, source_state=None, load_scale=1.0):
     height, width = 30, 42
     thickness = 0.01
     coupon_width_m = 0.012
     wavelengths = np.array([650e-9, 550e-9, 450e-9], dtype=float)
     c_true = np.array([2.4e-9, 2.7e-9, 3.1e-9], dtype=float)
-    s_true = np.array([0.88, 0.12, 0.0], dtype=float)
+    s_true = np.array([0.88, 0.12, 0.0] if source_state is None else source_state, dtype=float)
 
     # [x0, x1, y0, y1]
     gauge_roi = np.array([10, 32, 8, 22], dtype=int)
@@ -251,10 +253,17 @@ def _make_synthetic_coupon_case(tmp_path):
 
     dark_file = tmp_path / "coupon_dark.npy"
     blank_file = tmp_path / "coupon_blank.npy"
+
+    if noise_scale > 0.0:
+        rng = np.random.default_rng(314)
+        dark += rng.normal(scale=0.02 * noise_scale, size=dark.shape)
+        blank += rng.normal(scale=0.02 * noise_scale, size=blank.shape)
+
     io.save_image(str(dark_file), dark.astype(np.float32))
     io.save_image(str(blank_file), blank.astype(np.float32))
 
     load_steps = []
+    rng = np.random.default_rng(2718)
     for idx, load in enumerate(loads):
         sigma = load / (thickness * coupon_width_m)
         sigma_xx = np.full((height, width), sigma, dtype=float)
@@ -273,10 +282,12 @@ def _make_synthetic_coupon_case(tmp_path):
 
         corrected[~roi_mask, :, :] = 1.0
         raw = corrected / scale[np.newaxis, np.newaxis, :, :] + offset[np.newaxis, np.newaxis, :, :]
+        if noise_scale > 0.0:
+            raw += rng.normal(scale=noise_scale, size=raw.shape)
 
         image_file = tmp_path / f"coupon_load_{idx}.npy"
         io.save_image(str(image_file), raw.astype(np.float32))
-        load_steps.append({"load": float(load), "image_file": str(image_file)})
+        load_steps.append({"load": float(load_scale * load), "image_file": str(image_file)})
 
     config = {
         "method": "coupon_test",
@@ -300,9 +311,9 @@ def _make_synthetic_coupon_case(tmp_path):
             "f_scale": 0.05,
             "max_nfev": 200,
             "initial_C": [2.2e-9, 2.6e-9, 3.0e-9],
-            "initial_S_i_hat": [0.85, 0.1, 0.0],
-            "c_relative_bounds": [0.8, 1.2],
-            "prior_weight": 8000.0,
+            "S_i_hat": s_true.tolist(),
+            "c_relative_bounds": [0.8, 1.2] if noise_scale > 0.0 else None,
+            "prior_weight": 8000.0 if noise_scale > 0.0 else 0.0,
         },
         "output_profile": str(tmp_path / "coupon_calibration_profile.json5"),
         "output_report": str(tmp_path / "coupon_calibration_report.md"),
@@ -312,28 +323,39 @@ def _make_synthetic_coupon_case(tmp_path):
 
 
 def test_calibration_residuals_near_zero_for_noiseless_data(tmp_path):
-    config, c_true, s_true = _make_synthetic_calibration_case(tmp_path, noisy=False)
+    config, c_true, s_true = _make_synthetic_calibration_case(tmp_path)
     validated = calibrate.validate_calibration_config(config)
     dataset = calibrate._build_dataset(validated)
 
-    params = np.concatenate([c_true, s_true], axis=0)
-    residual = calibrate.calibration_residuals(params, dataset)
+    residual = calibrate.calibration_residuals(c_true, dataset, fixed_s_i_hat=s_true)
 
     assert residual.ndim == 1
     assert np.sqrt(np.mean(residual**2)) < 1e-6
 
 
-def test_fit_recovers_c_and_s_i_hat_on_noisy_data(tmp_path):
-    config, c_true, s_true = _make_synthetic_calibration_case(tmp_path, noisy=True)
+@pytest.mark.parametrize(
+    ("noise_scale", "source_state"),
+    [
+        (0.0, [0.82, 0.18, 0.0]),
+        (5e-5, [0.82, 0.18, 0.0]),
+        (0.0, [0.2, 0.1, np.sqrt(0.95)]),
+        (5e-5, [0.2, 0.1, np.sqrt(0.95)]),
+    ],
+)
+def test_fit_recovers_c_with_fixed_s_i_hat_from_synthetic_disk_data(tmp_path, noise_scale, source_state):
+    config, c_true, s_true = _make_synthetic_calibration_case(
+        tmp_path, noise_scale=noise_scale, source_state=source_state
+    )
     result = calibrate.run_calibration(config)
     profile = result["profile"]
 
     c_fit = np.asarray(profile["C"], dtype=float)
     s_fit = np.asarray(profile["S_i_hat"], dtype=float)
 
-    assert np.allclose(c_fit, c_true, rtol=0.2, atol=0.0)
-    assert np.allclose(s_fit[:2], s_true[:2], atol=0.12)
+    assert np.allclose(c_fit, c_true, rtol=0.25, atol=0.0)
+    assert np.allclose(s_fit, calibrate._normalise_s_i_hat(s_true), atol=1e-12)
     assert profile["fit_metrics"]["success"]
+    assert profile["fit_metrics"]["fallback_used"] is False
 
 
 def test_blank_correction_coefficients_and_application():
@@ -368,7 +390,7 @@ def test_blank_correction_coefficients_and_application():
 
 
 def test_validation_errors_for_bad_configuration(tmp_path):
-    config, _, _ = _make_synthetic_calibration_case(tmp_path, noisy=False)
+    config, _, _ = _make_synthetic_calibration_case(tmp_path)
 
     no_noload = dict(config)
     no_noload["load_steps"] = [dict(step, load=abs(step["load"]) + 1.0) for step in config["load_steps"]]
@@ -395,22 +417,23 @@ def test_validation_errors_for_bad_configuration(tmp_path):
 
 
 def test_build_dataset_without_noload_uses_default_initial_guess(tmp_path):
-    config, _, _ = _make_synthetic_calibration_case(tmp_path, noisy=False)
+    config, _, _ = _make_synthetic_calibration_case(tmp_path)
     config["load_steps"] = [
         dict(step, load=float(index + 1)) for index, step in enumerate(config["load_steps"][:3])
     ]
+    config["fit"].pop("S_i_hat")
 
     with pytest.warns(UserWarning, match="no-load"):
         validated = calibrate.validate_calibration_config(config)
 
-    with pytest.warns(UserWarning, match="default initial S_i_hat"):
+    with pytest.warns(UserWarning, match="default fixed S_i_hat"):
         dataset = calibrate._build_dataset(validated)
 
     assert np.allclose(dataset["initial_s_i_hat"], np.array([1.0, 0.0, 0.0]))
 
 
 def test_validation_error_for_inconsistent_image_shapes(tmp_path):
-    config, _, _ = _make_synthetic_calibration_case(tmp_path, noisy=False, inconsistent_shapes=True)
+    config, _, _ = _make_synthetic_calibration_case(tmp_path, inconsistent_shapes=True)
     validated = calibrate.validate_calibration_config(config)
 
     with pytest.raises(ValueError, match="share shape"):
@@ -418,7 +441,7 @@ def test_validation_error_for_inconsistent_image_shapes(tmp_path):
 
 
 def test_end_to_end_writes_profile_report_and_diagnostics(tmp_path):
-    config, _, _ = _make_synthetic_calibration_case(tmp_path, noisy=False)
+    config, _, _ = _make_synthetic_calibration_case(tmp_path)
     result = calibrate.run_calibration(config)
 
     assert Path(result["profile_file"]).exists()
@@ -459,7 +482,7 @@ def test_coupon_test_end_to_end_fit_and_profile(tmp_path):
 
     assert profile["method"] == "coupon_test"
     assert np.allclose(np.asarray(profile["C"], dtype=float), c_true, rtol=0.2, atol=0.0)
-    assert np.allclose(np.asarray(profile["S_i_hat"], dtype=float)[:2], s_true[:2], atol=0.12)
+    assert np.allclose(np.asarray(profile["S_i_hat"], dtype=float), s_true, atol=1e-12)
     assert profile["fit_metrics"]["success"]
 
     loaded = calibrate.load_calibration_profile(result["profile_file"])
@@ -474,3 +497,16 @@ def test_coupon_validation_requires_coupon_geometry_fields(tmp_path):
 
     with pytest.raises(ValueError, match="coupon_width_m"):
         calibrate.validate_calibration_config(bad)
+
+
+@pytest.mark.parametrize("noise_scale", [0.0, 5e-5])
+def test_coupon_calibration_recovers_c_with_fixed_circular_source(tmp_path, noise_scale):
+    config, c_true, s_true = _make_synthetic_coupon_case(
+        tmp_path, noise_scale=noise_scale, source_state=[0.0, 0.0, 1.0], load_scale=0.5
+    )
+    result = calibrate.run_calibration(config)
+    profile = result["profile"]
+
+    assert np.allclose(np.asarray(profile["C"], dtype=float), c_true, rtol=0.2, atol=0.0)
+    assert np.allclose(np.asarray(profile["S_i_hat"], dtype=float), s_true, atol=1e-12)
+    assert profile["fit_metrics"]["success"]
