@@ -142,9 +142,15 @@ Common optional keys:
 
 - `dark_frame_file` + `blank_frame_file` (both or neither)
 - `fit.max_points`, `fit.seed`, `fit.loss`, `fit.f_scale`, `fit.max_nfev`
-- `fit.initial_C`, `fit.initial_S_i_hat`
-- `fit.s3_identifiability_threshold`, `fit.prior_weight`, `fit.c_relative_bounds`
+- `fit.initial_C`, `fit.prior_weight`, `fit.c_relative_bounds`
 - `output_profile`, `output_report`, `output_diagnostics`
+
+Required fit key:
+
+- `fit.S_i_hat` as an explicit 3-component fixed source state `[S1_hat, S2_hat, S3_hat]`
+
+`fit.S_i_hat` is treated as a fixed source state during calibration; the
+optimiser only fits `C`. Calibration does not provide a default `S_i_hat`.
 
 Load step input notes:
 
