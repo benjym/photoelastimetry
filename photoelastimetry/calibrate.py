@@ -368,8 +368,12 @@ def validate_calibration_config(config):
         )
 
     fit_cfg = dict(config.get("fit", {}))
+    if "initial_S_i_hat" in fit_cfg:
+        raise ValueError("fit.initial_S_i_hat is no longer supported; use fit.S_i_hat.")
     if "S_i_hat" not in fit_cfg:
-        raise ValueError("Calibration config must include fit.S_i_hat.")
+        raise ValueError(
+            "Calibration config must include fit.S_i_hat as a 3-component array " "[S1_hat, S2_hat, S3_hat]."
+        )
     fit_s_i_hat = np.asarray(fit_cfg["S_i_hat"], dtype=float)
     if fit_s_i_hat.shape != (3,):
         raise ValueError(f"fit.S_i_hat must have shape (3,), got {fit_s_i_hat.shape}.")
@@ -881,7 +885,7 @@ def calibration_residuals(params, dataset, fixed_s_i_hat):
     Parameters
     ----------
     params : ndarray
-        Parameter vector containing C values.
+        1D parameter vector containing one C value per wavelength channel.
     dataset : dict
         Dataset dictionary from `_build_dataset`.
     fixed_s_i_hat : array-like

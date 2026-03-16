@@ -424,7 +424,7 @@ def test_validation_errors_for_bad_configuration(tmp_path):
     legacy_s_i_hat["fit"] = dict(config["fit"])
     legacy_s_i_hat["fit"].pop("S_i_hat")
     legacy_s_i_hat["fit"]["initial_S_i_hat"] = [0.8, 0.1, 0.0]
-    with pytest.raises(ValueError, match="fit.S_i_hat"):
+    with pytest.raises(ValueError, match="initial_S_i_hat"):
         calibrate.validate_calibration_config(legacy_s_i_hat)
 
 
@@ -440,6 +440,9 @@ def test_validation_without_noload_still_accepts_explicit_s_i_hat(tmp_path):
     dataset = calibrate._build_dataset(validated)
 
     assert dataset["loads"].shape == (3,)
+    assert np.allclose(
+        np.asarray(validated["fit"]["S_i_hat"], dtype=float), np.asarray(config["fit"]["S_i_hat"])
+    )
 
 
 def test_validation_error_for_inconsistent_image_shapes(tmp_path):
