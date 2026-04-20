@@ -3,6 +3,7 @@ import os
 from glob import glob
 
 import numpy as np
+import tifffile
 from tqdm import tqdm
 
 SUPPORTED_BAYER_PIXEL_FORMATS = {
@@ -322,13 +323,23 @@ def load_image(filename, metadata=None):
     elif filename.endswith(".tiff") or filename.endswith(".tif"):
         import tifffile
 
-        data = tifffile.imread(filename)
+        with tifffile.TiffFile(filename) as tif:
+            data = tif.asarray()
+            axes = tif.series[0].axes.upper() if tif.series else None
 
-        # transpose data to XYC or XYCP format
+        # transpose data to [Y, X, C, A] format
         if data.ndim == 3:
-            data = np.transpose(data, (1, 2, 0))
+            if axes == "YXC":
+                pass  # already [Y, X, C]
+            else:
+                data = np.transpose(data, (1, 2, 0))  # TCYX → [Y, X, C]
         elif data.ndim == 4:
-            data = np.transpose(data, (2, 3, 1, 0))
+            if axes == "YXCA":
+                pass  # already [Y, X, C, A]
+            elif axes == "CYXS":
+                data = np.transpose(data, (1, 2, 3, 0))  # CYXS → [Y, X, S, C]
+            else:
+                data = np.transpose(data, (2, 3, 1, 0))  # TCYX → [Y, X, C, T]
 
     else:
         raise ValueError(
