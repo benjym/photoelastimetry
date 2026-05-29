@@ -2,14 +2,15 @@
     // Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat]
     S_i_hat : [0.0, 0.0, 1.0], // Incoming polarization state
     binning: 8,
-    // crop : [300, 515, 415, 645], //  Crop region as [x1, x2, y1, y2]
+    crop : [865, 1585, 411, 971], //  Crop region as [x1, x2, y1, y2]
     wavelengths : [650, 550, 450], // R, G, B wavelengths (nm)
-    load : 1,
     C : [3e-10,3e-10,3e-10], // stress-optic coefficient for each wavelength (1/Pa)
     thickness : 0.01, // thickness of sample in m
     polarisation_efficiency : 0.95,
-    input_filename : "images/test/disk_synthetic_images.tiff",
-    output_filename : "images/test/predicted_stress_map.tiff",
+    load : 200, // load in N
+    input_filename : "/Users/bmar5496/Desktop/disk/no_room_light_20260529_022832/time_average.tiff",
+    dark_field : "/Users/bmar5496/Desktop/disk/dark_20260529_022718/time_average.tiff",
+    output_filename : "images/disk2/predicted_stress_map.png",
     debug: false,
     knot_spacing: 8,
     max_iterations: 100

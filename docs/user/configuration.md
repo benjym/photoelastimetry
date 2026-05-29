@@ -9,6 +9,8 @@ This is the canonical reference for CLI JSON5 parameters.
 - `S_i_hat` can have length 2 or 3:
   - `[S1_hat, S2_hat]` or `[S1_hat, S2_hat, S3_hat]`
 - Stress map default order is `[sigma_xx, sigma_yy, sigma_xy]`
+- Loaded polarimetric stacks use canonical analyzer order `[0, 45, 90, 135]` even when the camera raw/TIFF layout stores another physical order.
+- Pixel coordinates use image order (`x` rightward, row index downward). Brazilian disk calibration converts row coordinates to physical `Y` upward internally.
 
 ## Parameter Precedence
 
@@ -137,6 +139,8 @@ Method-specific required geometry:
 
 - `brazilian_disk`: `radius_mm`, `radius_px`, `center_px`
 - `coupon_test`: `gauge_roi_px`, `coupon_width_m`
+
+For `brazilian_disk`, `center_px` is `[cx, cy]` in image pixel coordinates.
 
 Common optional keys:
 

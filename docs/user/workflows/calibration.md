@@ -16,6 +16,7 @@ Fit calibration profile values (`C`, `S_i_hat`, blank correction) from known-loa
 - Method-specific geometry:
   - `brazilian_disk`: `radius_mm`, `radius_px`, `center_px`
   - `coupon_test`: `gauge_roi_px`, `coupon_width_m`
+- `center_px` is `[cx, cy]` in image pixel coordinates. For disk models, image rows increase downward but physical `Y` is treated as upward internally.
 
 ## Example Config (Brazilian disk)
 
@@ -58,6 +59,7 @@ calibrate-photoelastimetry calibration.json5 --interactive --save-config calib/c
 ```
 
 In interactive mode:
+
 - `brazilian_disk`:
   - left-click multiple points on the disk circumference (at least 3)
   - a fitted circle overlay updates live as you add points

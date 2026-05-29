@@ -23,9 +23,9 @@ def test_split_channels_known_superpixel_mapping():
     assert out.shape == (1, 1, 4, 4)
     # R channel values from the documented superpixel map.
     assert out[0, 0, 0, 0] == data[0, 0]  # R_0
-    assert out[0, 0, 0, 1] == data[0, 1]  # R_45
+    assert out[0, 0, 0, 1] == data[1, 0]  # R_45
     assert out[0, 0, 0, 2] == data[1, 1]  # R_90
-    assert out[0, 0, 0, 3] == data[1, 0]  # R_135
+    assert out[0, 0, 0, 3] == data[0, 1]  # R_135
 
 
 def test_collapse_duplicate_green_channel_removes_g2():
@@ -230,6 +230,21 @@ def test_save_load_tiff_4d_preserves_shape_and_values(tmp_path):
 
     assert loaded.shape == data.shape
     assert np.allclose(loaded, data, rtol=1e-6, atol=1e-6)
+
+
+def test_load_camera_rgb_page_tiff_swaps_45_135_to_canonical_order(tmp_path):
+    import tifffile
+
+    filename = tmp_path / "camera_stack.tiff"
+    camera_stack = np.zeros((4, 3, 2, 2), dtype=np.uint16)
+    for angle_index in range(4):
+        camera_stack[angle_index] = angle_index
+
+    tifffile.imwrite(filename, camera_stack)
+    loaded, _ = load_image(str(filename))
+
+    assert loaded.shape == (2, 2, 3, 4)
+    assert np.array_equal(loaded[0, 0, 0, :], np.array([0, 3, 2, 1], dtype=np.uint16))
 
 
 def test_save_load_npy_round_trip(tmp_path):

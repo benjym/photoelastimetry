@@ -417,7 +417,7 @@ def _build_disk_coordinates(height, width, geometry):
     R = geometry["radius_m"]
 
     x = (np.arange(width, dtype=float) - cx) / ppm
-    y = (np.arange(height, dtype=float) - cy) / ppm
+    y = (cy - np.arange(height, dtype=float)) / ppm
     X, Y = np.meshgrid(x, y)
 
     r = np.sqrt(X**2 + Y**2)
@@ -1155,7 +1155,7 @@ def _write_visual_diagnostics_plot(plot_path, dataset, fit_result):
     from matplotlib.figure import Figure
 
     fig = Figure(figsize=(13, 8), constrained_layout=True)
-    _canvas = FigureCanvas(fig)
+    FigureCanvas(fig)
     axes = fig.subplots(2, 3)
     entries = [
         ("Measured I0", maps["measured_i0"][y0:y1, x0:x1], "gray"),

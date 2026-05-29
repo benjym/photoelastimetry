@@ -127,28 +127,28 @@ def split_channels(data):
     Splits the data into its respective polarisation channels. Each superpixel
     is 4x4 pixels, and the channels are arranged in the following order:
 
-    R_0 | R_45 | G1_0 | G1_45
-    R_135 | R_90 | G1_135 | G1_90
-    G2_0 | G2_45 | B_0 | B_45
-    G2_135 | G2_90 | B_135 | B_90
+    R_0 | R_135 | G1_0 | G1_135
+    R_45 | R_90 | G1_45 | G1_90
+    G2_0 | G2_135 | B_0 | B_135
+    G2_45 | G2_90 | B_45 | B_90
     """
 
     # Reshape the data into a 4D array
     R_0 = data[0::4, 0::4]
-    R_45 = data[0::4, 1::4]
+    R_135 = data[0::4, 1::4]
     G1_0 = data[0::4, 2::4]
-    G1_45 = data[0::4, 3::4]
-    R_135 = data[1::4, 0::4]
+    G1_135 = data[0::4, 3::4]
+    R_45 = data[1::4, 0::4]
     R_90 = data[1::4, 1::4]
-    G1_135 = data[1::4, 2::4]
+    G1_45 = data[1::4, 2::4]
     G1_90 = data[1::4, 3::4]
     G2_0 = data[2::4, 0::4]
-    G2_45 = data[2::4, 1::4]
+    G2_135 = data[2::4, 1::4]
     B_0 = data[2::4, 2::4]
-    B_45 = data[2::4, 3::4]
-    G2_135 = data[3::4, 0::4]
+    B_135 = data[2::4, 3::4]
+    G2_45 = data[3::4, 0::4]
     G2_90 = data[3::4, 1::4]
-    B_135 = data[3::4, 2::4]
+    B_45 = data[3::4, 2::4]
     B_90 = data[3::4, 3::4]
 
     # Stack the channels into a 4D array
@@ -238,8 +238,6 @@ def save_image(filename, data, metadata={}):
 
         plt.imsave(filename, data.astype(np.uint8))
     elif filename.endswith(".tiff") or filename.endswith(".tif"):
-        import tifffile
-
         if data.ndim == 2:
             tifffile.imwrite(filename, data.astype("<f4"))
         elif data.ndim == 3:
@@ -321,8 +319,6 @@ def load_image(filename, metadata=None):
 
         data = plt.imread(filename)
     elif filename.endswith(".tiff") or filename.endswith(".tif"):
-        import tifffile
-
         with tifffile.TiffFile(filename) as tif:
             data = tif.asarray()
             axes = tif.series[0].axes.upper() if tif.series else None
@@ -338,6 +334,9 @@ def load_image(filename, metadata=None):
                 pass  # already [Y, X, C, A]
             elif axes == "CYXS":
                 data = np.transpose(data, (1, 2, 3, 0))  # CYXS → [Y, X, S, C]
+            elif axes in {"ISYX", "QSYX"}:
+                data = np.transpose(data, (2, 3, 1, 0))  # camera TIFF → [Y, X, C, A]
+                data = data[:, :, :, [0, 3, 2, 1]]
             else:
                 data = np.transpose(data, (2, 3, 1, 0))  # TCYX → [Y, X, C, T]
 

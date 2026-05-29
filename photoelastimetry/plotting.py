@@ -2,8 +2,6 @@ import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
 
-import photoelastimetry.io
-
 _virino_list = [
     [9.8857443e-01, 9.9435500e-01, 6.2314191e-01],
     [9.8899847e-01, 9.8635272e-01, 5.7966316e-01],
@@ -322,7 +320,7 @@ def show_all_channels(data, metadata, filename=None):
         colours = ["R", "G1", "G2", "B"]
 
     for i, colour in enumerate(colours):
-        for j, polarisation in enumerate(["0", "90", "45", "135"]):
+        for j, polarisation in enumerate(["0", "45", "90", "135"]):
             plt.subplot(4, 4, i * 4 + j + 1)
             plt.title(f"{colour}_{polarisation}")
             plt.imshow(data[:, :, i, j])
@@ -372,7 +370,6 @@ def plot_optimization_history(history, S_m_hat, filename=None):
         is_best = path["is_best"]
         alpha = 0.8 if is_best else 0.1
         linewidth = 2 if is_best else 0.1
-        linestyle = "-" if is_best else "-"
         markersize = 2 if is_best else 0.1
 
         ax1.plot(

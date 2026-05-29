@@ -22,47 +22,27 @@ def diametrical_stress_cartesian(X, Y, P, R):
     R: disk radius
 
     Key validation: At center (0,0):
-    - sigma_x = 2P/(pi*R) (tensile)
-    - sigma_y = -6P/(pi*R) (compressive)
+    - sigma_x = P/(pi*R) (tensile)
+    - sigma_y = -3P/(pi*R) (compressive)
     - tau_xy = 0
     """
+    top_distance_squared = X**2 + (R - Y) ** 2
+    bottom_distance_squared = X**2 + (R + Y) ** 2
 
-    X_safe = X.copy()
-    Y_safe = Y.copy()
-
-    # Small offset to avoid singularities at origin
-    origin_mask = (X**2 + Y**2) < (0.001 * R) ** 2
-    X_safe = np.where(origin_mask, 0.001 * R, X_safe)
-    Y_safe = np.where(origin_mask, 0.001 * R, Y_safe)
-
-    # Distance from load points
-    r1 = np.sqrt(X_safe**2 + (Y_safe - R) ** 2)  # from (0, R)
-    r2 = np.sqrt(X_safe**2 + (Y_safe + R) ** 2)  # from (0, -R)
-
-    # Angles from load points
-    theta1 = np.arctan2(X_safe, Y_safe - R)
-    theta2 = np.arctan2(X_safe, Y_safe + R)
+    top_distance_squared = np.where(top_distance_squared == 0, np.nan, top_distance_squared)
+    bottom_distance_squared = np.where(bottom_distance_squared == 0, np.nan, bottom_distance_squared)
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        sigma_xx = (
-            -(2 * P / np.pi)
-            * (np.cos(theta1) ** 2 * (Y_safe - R) / (r1**2) - np.cos(theta2) ** 2 * (Y_safe + R) / (r2**2))
-            / R
+        sigma_xx = -(2 * P / np.pi) * (
+            ((R - Y) * X**2) / top_distance_squared**2
+            + ((R + Y) * X**2) / bottom_distance_squared**2
+            - 1 / (2 * R)
         )
-
-        sigma_yy = (
-            -(2 * P / np.pi)
-            * (np.sin(theta1) ** 2 * (Y_safe - R) / (r1**2) - np.sin(theta2) ** 2 * (Y_safe + R) / (r2**2))
-            / R
+        sigma_yy = -(2 * P / np.pi) * (
+            (R - Y) ** 3 / top_distance_squared**2 + (R + Y) ** 3 / bottom_distance_squared**2 - 1 / (2 * R)
         )
-
-        tau_xy = (
-            -(2 * P / np.pi)
-            * (
-                np.sin(theta1) * np.cos(theta1) * (Y_safe - R) / (r1**2)
-                - np.sin(theta2) * np.cos(theta2) * (Y_safe + R) / (r2**2)
-            )
-            / R
+        tau_xy = (2 * P / np.pi) * (
+            ((R - Y) ** 2 * X) / top_distance_squared**2 - ((R + Y) ** 2 * X) / bottom_distance_squared**2
         )
 
     return sigma_xx, sigma_yy, tau_xy
@@ -381,35 +361,35 @@ def post_process_synthetic_data(  # pragma: no cover
     plt.text(
         0.1,
         0.5,
-        f"Center σₓₓ: {sigma_xx[n//2, n//2]/1e6:.2f} MPa",
+        f"Center σₓₓ: {sigma_xx[n // 2, n // 2] / 1e6:.2f} MPa",
         fontsize=10,
         transform=plt.gca().transAxes,
     )
     plt.text(
         0.1,
         0.4,
-        f"Center σᵧᵧ: {sigma_yy[n//2, n//2]/1e6:.2f} MPa",
+        f"Center σᵧᵧ: {sigma_yy[n // 2, n // 2] / 1e6:.2f} MPa",
         fontsize=10,
         transform=plt.gca().transAxes,
     )
     plt.text(
         0.1,
         0.3,
-        f"Material f_σ: {f_sigma/1e6:.1f} MPa",
+        f"Material f_σ: {f_sigma / 1e6:.1f} MPa",
         fontsize=10,
         transform=plt.gca().transAxes,
     )
     plt.text(
         0.1,
         0.2,
-        f"Thickness: {t_sample*1000:.0f} mm",
+        f"Thickness: {t_sample * 1000:.0f} mm",
         fontsize=10,
         transform=plt.gca().transAxes,
     )
     plt.text(
         0.1,
         0.1,
-        f"Wavelength: {lambda_light*1e9:.0f} nm",
+        f"Wavelength: {lambda_light * 1e9:.0f} nm",
         fontsize=10,
         transform=plt.gca().transAxes,
     )
@@ -441,6 +421,8 @@ if __name__ == "__main__":
     wavelengths_nm = np.array(params["wavelengths"]) * 1e-9  # Wavelengths in nm
     C = np.array(params["C"])  # Stress-optic coefficient (Pa^-1) for each wavelength
     polarisation_efficiency = params["polarisation_efficiency"]  # Polarisation efficiency (0-1)
+    if "load" in params:
+        P = params["load"]  # Override load if specified in params
 
     # Grid in polar coordinates
     n = 100

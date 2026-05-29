@@ -24,7 +24,7 @@ def _make_synthetic_calibration_case(
     cy = height / 2.0
 
     x = (np.arange(width) - cx) / pixels_per_meter
-    y = (np.arange(height) - cy) / pixels_per_meter
+    y = (cy - np.arange(height)) / pixels_per_meter
     X, Y = np.meshgrid(x, y)
     disk_mask = X**2 + Y**2 <= radius_m**2
 

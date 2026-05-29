@@ -26,6 +26,12 @@ def test_diametrical_stress_symmetry_and_center_signs():
     assert np.std(s_xx[finite]) > 0
     assert np.std(s_yy[finite]) > 0
 
+    center = X.shape[0] // 2
+    expected_center_tension = 1000.0 / (np.pi * r)
+    assert np.isclose(s_xx[center, center], expected_center_tension)
+    assert np.isclose(s_yy[center, center], -3 * expected_center_tension)
+    assert np.isclose(t_xy[center, center], 0.0)
+
 
 def test_diametrical_stress_linear_scaling_with_load():
     r = 0.008

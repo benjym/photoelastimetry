@@ -26,3 +26,5 @@ This area is organized by tasks, not by module internals.
 
 - Stress map: `[H, W, 3]` in order `[sigma_xx, sigma_yy, sigma_xy]` unless you set a legacy stress order.
 - Polarimetric stack: `[H, W, n_wavelengths, 4]` where the last axis is analyzer angles `[0, 45, 90, 135]`.
+- Camera raw data and camera RGB-page TIFFs are converted to that canonical polarimetric order on load.
+- Image row coordinates increase downward. Disk calibration converts those rows to physical coordinates with positive `Y` upward.
