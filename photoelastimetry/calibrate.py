@@ -28,6 +28,7 @@ from photoelastimetry.image import (
     predict_stokes,
     simulate_four_step_polarimetry,
 )
+from photoelastimetry.seeding import invert_wrapped_retardance
 
 
 def _normalise_wavelengths(wavelengths):
@@ -1002,6 +1003,207 @@ def fit_calibration_parameters(dataset, fit_config):
         "C": C_fit,
         "S_i_hat": S_fit,
         "fit_metrics": fit_metrics,
+        "optimizer_result": result,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stage-2 dispersion calibration
+# ---------------------------------------------------------------------------
+
+
+def _dispersion_power_law(wavelengths, C_ref, alpha, lambda_ref=550e-9):
+    """Power-law dispersion: C(λ) = C_ref × (λ_ref / λ)^α."""
+    return C_ref * (lambda_ref / wavelengths) ** alpha
+
+
+def _dispersion_cauchy(wavelengths, A, B):
+    """Cauchy dispersion: C(λ) = A + B / λ²."""
+    return A + B / wavelengths**2
+
+
+_DISPERSION_MODELS = {
+    "power_law": _dispersion_power_law,
+    "cauchy": _dispersion_cauchy,
+}
+
+
+def _get_dispersion_fn(model_name):
+    """Return dispersion callable by name."""
+    if model_name not in _DISPERSION_MODELS:
+        raise ValueError(
+            f"Unknown dispersion model '{model_name}'. "
+            f"Choose from: {sorted(_DISPERSION_MODELS)}."
+        )
+    return _DISPERSION_MODELS[model_name]
+
+
+def _dispersion_residuals(params, dataset, dispersion_fn, s_i_hat):
+    """
+    Retardance-domain residuals for dispersion calibration.
+
+    For each calibration pixel with analytically known principal stress difference
+    Δσ_true, compute the expected per-channel retardance
+    Φ[c] = 2π C[c] ν L Δσ_true / λ[c] and the measured wrapped retardance
+    δ_wrap[c] ∈ [0, π].  The integer fringe order N = round((Φ − δ_wrap) / π)
+    is assigned automatically; the residual Φ − (N·π + δ_wrap) is returned.
+
+    Unlike the Stokes residuals used in Stage 1, this objective is sensitive to
+    the dispersion *shape* (C-ratio between channels) even when multiple fringe
+    orders are present, because fringe-order crossovers create a sharp signal
+    that is unique to the correct C(λ) dispersion curve.
+    """
+    wavelengths = dataset["wavelengths"]
+    nu = float(dataset["nu"])
+    L = float(dataset["thickness"])
+    C = np.asarray(dispersion_fn(wavelengths, *params), dtype=float)
+    factors = 2.0 * np.pi * C * nu * L / wavelengths  # [n_channels]
+
+    chunks = []
+    for measured, sigma_xx, sigma_yy, sigma_xy in zip(
+        dataset["measured_steps"],
+        dataset["sigma_xx_steps"],
+        dataset["sigma_yy_steps"],
+        dataset["sigma_xy_steps"],
+    ):
+        # measured: [n_pixels, n_channels, 2]
+        _, delta_wrap = invert_wrapped_retardance(measured, s_i_hat)  # [n_pixels, n_channels]
+
+        delta_sigma = np.sqrt((sigma_xx - sigma_yy) ** 2 + 4.0 * sigma_xy**2)  # [n_pixels]
+
+        phi_true = delta_sigma[:, np.newaxis] * factors[np.newaxis, :]  # [n_pixels, n_channels]
+
+        N_best = np.round((phi_true - delta_wrap) / np.pi)
+        residuals = phi_true - (N_best * np.pi + delta_wrap)
+        chunks.append(residuals.ravel())
+
+    return np.concatenate(chunks) if chunks else np.zeros(1, dtype=float)
+
+
+def fit_dispersion_parameters(dataset, initial_C, fit_config):
+    """
+    Fit wavelength dispersion using multi-fringe retardance residuals (Stage 2).
+
+    Whereas Stage 1 (:func:`fit_calibration_parameters`) fits independent per-channel
+    C values from Stokes residuals — which is most sensitive at first-order retardances —
+    Stage 2 fits a parametric dispersion curve C(λ) from retardance-domain residuals
+    that handle multiple fringe orders automatically.  This makes the dispersion shape
+    (C-ratio between channels) much better constrained.
+
+    For best results, supply a calibration dataset that spans several fringe orders
+    (i.e. a higher load or larger specimen than Stage 1).
+
+    Parameters
+    ----------
+    dataset : dict
+        Dataset from :func:`_build_dataset`.
+    initial_C : array-like
+        Per-channel C values from Stage 1, used to initialise the dispersion parameters.
+    fit_config : dict
+        Fit configuration.  Relevant keys:
+
+        - ``dispersion_model`` : ``"power_law"`` (default) or ``"cauchy"``
+        - ``lambda_ref`` : reference wavelength in metres (default 550 nm).
+          For power law: C(λ_ref) = C_ref.  For Cauchy: the anchored form
+          C(λ) = C_ref + dB*(1/λ² − 1/λ_ref²) is used so the scale and
+          shape parameters are decoupled.
+        - ``S_i_hat``, ``loss``, ``f_scale``, ``max_nfev`` : same as Stage 1.
+
+    Returns
+    -------
+    dict
+        Fit result with keys ``C``, ``S_i_hat``, ``fit_metrics``,
+        ``dispersion_model``, ``dispersion_params``, ``lambda_ref``.
+    """
+    wavelengths = dataset["wavelengths"]
+    n_channels = wavelengths.size
+    initial_C = _as_float_array(initial_C, expected_length=n_channels, name="initial_C")
+    s_i_hat = _resolve_fixed_s_i_hat(fit_config)
+
+    model_name = fit_config.get("dispersion_model", "power_law")
+
+    if model_name == "power_law":
+        lambda_ref = float(fit_config.get("lambda_ref", 550e-9))
+        ref_idx = int(np.argmin(np.abs(wavelengths - lambda_ref)))
+        c_ref_init = float(initial_C[ref_idx])
+
+        # Estimate initial alpha by log-linear fit to initial_C shape.
+        log_scale = np.log(lambda_ref / wavelengths)  # [n_channels]
+        log_ratio = np.log(initial_C / c_ref_init)    # [n_channels]
+        nonzero = np.abs(log_scale) > 1e-10
+        alpha_init = float(np.median(log_ratio[nonzero] / log_scale[nonzero])) if np.any(nonzero) else 0.0
+
+        x0 = np.array([c_ref_init, alpha_init])
+        bounds_lower = [1e-15, -5.0]
+        bounds_upper = [1e-4, 5.0]
+
+        def dispersion_fn(wl, *p):
+            return _dispersion_power_law(wl, p[0], p[1], lambda_ref)
+
+    elif model_name == "cauchy":
+        # Anchored Cauchy: C(λ) = C_ref + dB*(1/λ² - 1/λ_ref²)
+        # C(λ_ref) = C_ref regardless of dB, so scale and shape decouple
+        # (mirrors the power-law reparameterisation).
+        lambda_ref = float(fit_config.get("lambda_ref", 550e-9))
+        ref_idx = int(np.argmin(np.abs(wavelengths - lambda_ref)))
+        c_ref_init = float(initial_C[ref_idx])
+
+        inv_ref_sq = 1.0 / lambda_ref**2
+        inv_diff = 1.0 / wavelengths**2 - inv_ref_sq  # [n_channels]
+        nonzero_d = np.abs(inv_diff) > 1e-6
+        dB_init = float(np.median((initial_C[nonzero_d] - c_ref_init) / inv_diff[nonzero_d])) if np.any(nonzero_d) else 0.0
+
+        x0 = np.array([c_ref_init, dB_init])
+        # Compute dB bounds so C(λ) ≥ 0.01*C_ref for every channel.
+        # Positive inv_diff channels: dB < 0 decreases C → lower bound from these.
+        # Negative inv_diff channels: dB > 0 decreases C → upper bound from these.
+        pos_mask = inv_diff > 0
+        neg_mask = inv_diff < 0
+        dB_lower = float(-0.99 * c_ref_init / np.max(inv_diff[pos_mask])) if np.any(pos_mask) else -1e-18
+        dB_upper = float(0.99 * c_ref_init / np.max(np.abs(inv_diff[neg_mask]))) if np.any(neg_mask) else 1e-18
+        bounds_lower = [1e-15, dB_lower]
+        bounds_upper = [1e-4, dB_upper]
+
+        def dispersion_fn(wl, *p):  # noqa: E306
+            return p[0] + p[1] * (1.0 / wl**2 - inv_ref_sq)
+
+    else:
+        raise ValueError(
+            f"Unknown dispersion model '{model_name}'. Choose 'power_law' or 'cauchy'."
+        )
+
+    result = least_squares(
+        _dispersion_residuals,
+        x0,
+        args=(dataset, dispersion_fn, s_i_hat),
+        bounds=(bounds_lower, bounds_upper),
+        loss=fit_config.get("loss", "soft_l1"),
+        f_scale=float(fit_config.get("f_scale", 0.2)),
+        max_nfev=int(fit_config.get("max_nfev", 500)),
+    )
+
+    C_fit = np.asarray(dispersion_fn(wavelengths, *result.x), dtype=float)
+    residual = result.fun
+
+    fit_metrics = {
+        "success": bool(result.success),
+        "status": int(result.status),
+        "message": str(result.message),
+        "cost": float(result.cost),
+        "rmse": float(np.sqrt(np.mean(residual**2))),
+        "mae": float(np.mean(np.abs(residual))),
+        "n_residuals": int(residual.size),
+        "n_samples": int(dataset["sample_y"].size),
+        "n_load_steps": int(dataset["loads"].size),
+    }
+
+    return {
+        "C": C_fit,
+        "S_i_hat": s_i_hat,
+        "fit_metrics": fit_metrics,
+        "dispersion_model": model_name,
+        "dispersion_params": result.x.tolist(),
+        "lambda_ref": lambda_ref,
         "optimizer_result": result,
     }
 
