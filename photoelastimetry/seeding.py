@@ -277,7 +277,7 @@ def resolve_fringe_orders(
         strategies = []
         if is_circular:
             # Circular: k*pi +/- delta
-            for k in range(2 * n_max + 2):
+            for k in range(n_max):
                 strategies.append((np.pi * k, 1.0))
                 if k > 0:
                     strategies.append((np.pi * k, -1.0))
@@ -452,6 +452,7 @@ def phase_decomposed_seeding(
     sigma_max=None,
     n_max=6,
     correction_params=None,
+    debug=False,
 ):
     """
     Compute a resolved optical seed using the phase decomposed seeding method.
@@ -480,6 +481,8 @@ def phase_decomposed_seeding(
         - order_param (float): order parameter |m| [0, 1]
         - N (float, optional): number of encounters
         - d (float, optional): particle diameter (to calculate N)
+    debug : bool
+        Whether to print debug information.
 
     Returns
     -------
@@ -524,6 +527,27 @@ def phase_decomposed_seeding(
     # Unflatten theta and delta_sigma
     theta = theta.reshape(H, W)
     delta_sigma = delta_sigma.reshape(H, W)
+
+    if debug:
+        delta_wrap_RGB = delta_wrap.reshape(H, W, 3)
+        delta_R = np.zeros_like(delta_sigma)
+        delta_R = (delta_sigma * 2 * np.pi * C_values[0] * nu * L) / wavelengths[0]
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(15, 5))
+        plt.subplot(1, 3, 1)
+        plt.title("Wrapped Retardance (delta_wrap, R channel)")
+        plt.imshow(delta_wrap_RGB[..., 0], cmap="inferno")
+        plt.colorbar()
+        plt.subplot(1, 3, 2)
+        plt.title("Resolved Retardance (delta_sigma/C_eff)) for R channel")
+        plt.imshow(delta_R, cmap="inferno")
+        plt.colorbar()
+        plt.subplot(1, 3, 3)
+        plt.title("Principal Stress Orientation (theta)")
+        plt.imshow(theta, cmap="hsv")
+        plt.colorbar()
+        plt.show()
 
     if is_circular:
         # Re-calculate theta robustly using the resolved stress difference

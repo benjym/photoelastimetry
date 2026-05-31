@@ -363,6 +363,59 @@ class TestImageToStress:
             assert np.allclose(c_values, profile["C"])
             assert np.allclose(s_i_hat, profile["S_i_hat"])
 
+    def test_image_to_stress_applies_direct_blank_dark_correction(self, _mock_optimise_pipeline):
+        mock_seeding, _mock_recover = _mock_optimise_pipeline
+        with tempfile.TemporaryDirectory() as tmpdir:
+            offset = np.array(
+                [
+                    [0.01, 0.02, 0.03, 0.04],
+                    [0.02, 0.03, 0.04, 0.05],
+                    [0.03, 0.04, 0.05, 0.06],
+                ],
+                dtype=float,
+            )
+            scale = np.array(
+                [
+                    [0.9, 0.85, 0.88, 0.91],
+                    [0.95, 0.93, 0.94, 0.92],
+                    [0.87, 0.89, 0.86, 0.90],
+                ],
+                dtype=float,
+            )
+            corrected_true = np.full((5, 6, 3, 4), 0.4, dtype=float)
+            raw = corrected_true / scale[np.newaxis, np.newaxis, :, :] + offset[np.newaxis, np.newaxis, :, :]
+            raw[1:4, 2:5, :, :] = (
+                offset[np.newaxis, np.newaxis, :, :] + 1.0 / scale[np.newaxis, np.newaxis, :, :]
+            )
+            dark = np.broadcast_to(offset[np.newaxis, np.newaxis, :, :], raw.shape)
+
+            input_file = os.path.join(tmpdir, "input.tiff")
+            dark_file = os.path.join(tmpdir, "dark.tiff")
+            io.save_image(input_file, raw.astype(np.float32))
+            io.save_image(dark_file, dark.astype(np.float32))
+
+            params = self._base_params(input_file)
+            params["dark_field"] = dark_file
+            params["blank_roi"] = [2, 5, 1, 4]
+
+            main.image_to_stress(params)
+
+            corrected_data = mock_seeding.call_args.args[0]
+            assert np.allclose(corrected_data[0, 0], corrected_true[0, 0], rtol=1e-6, atol=1e-6)
+            assert np.allclose(corrected_data[2, 3], 1.0, rtol=1e-6, atol=1e-6)
+
+    def test_image_to_stress_requires_blank_roi_and_dark_field_together(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data = np.random.rand(2, 2, 3, 4).astype(np.float32)
+            input_file = os.path.join(tmpdir, "input.tiff")
+            io.save_image(input_file, data)
+
+            params = self._base_params(input_file)
+            params["blank_roi"] = [0, 1, 0, 1]
+
+            with pytest.raises(ValueError, match="blank_roi.*dark_field"):
+                main.image_to_stress(params)
+
     def test_image_to_stress_explicit_params_override_calibration_profile(self, _mock_optimise_pipeline):
         mock_seeding, _mock_recover = _mock_optimise_pipeline
         with tempfile.TemporaryDirectory() as tmpdir:

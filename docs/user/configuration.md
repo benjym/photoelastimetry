@@ -20,6 +20,7 @@ This is the canonical reference for CLI JSON5 parameters.
 - If `calibration_file` is set:
   - missing `C`, `S_i_hat`, `wavelengths` are filled from the profile
   - blank correction is applied
+- If `blank_roi` and `dark_field` are set directly, that direct blank/dark correction is applied instead of any calibration profile blank correction
 - For output path precedence:
   - if `output_filename` exists in JSON, it takes precedence over CLI `--output`
 
@@ -46,6 +47,8 @@ Common optional keys:
 - `output_filename`
 - `crop`: `[x1, x2, y1, y2]`
 - `binning`
+- `blank_roi`: `[x1, x2, y1, y2]` blank-response ROI in the loaded input image, before `crop` or `binning`
+- `dark_field`: path to a matching dark reference stack; must be provided with `blank_roi`
 - `debug`
 
 Seeding keys:

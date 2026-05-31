@@ -19,13 +19,36 @@ def load_params(filename):
 
 def prepare_experimental_data(params):
     data, _ = photoelastimetry.io.load_image(params["input_filename"])
-    if "dark_field" in params:
-        dark_field, _ = photoelastimetry.io.load_image(params["dark_field"])
-        data = data - dark_field
+    data = data.astype(float)
 
-    if params.get("crop") is not None:
-        x1, x2, y1, y2 = params["crop"]
-        data = data[y1:y2, x1:x2, :, :]
+    # Approximate blank response from a no-particle ROI in the input image.
+    # ROI order is [x1, x2, y1, y2].
+    blank_roi = params.get("blank_roi", [430, 530, 680, 810])
+    x1_blank, x2_blank, y1_blank, y2_blank = blank_roi
+    blank_medians = np.median(data[y1_blank:y2_blank, x1_blank:x2_blank, :, :], axis=(0, 1))
+
+    dark_field, _ = photoelastimetry.io.load_image(params["dark_field"])
+    dark_field = dark_field.astype(float)
+    dark_field_medians = np.median(dark_field, axis=(0, 1))
+
+    denominator = blank_medians - dark_field_medians
+    if np.any(denominator <= 0):
+        raise ValueError(f"Blank correction denominator must be positive. Got {denominator}.")
+
+    data = (data - dark_field_medians[np.newaxis, np.newaxis, :, :]) / denominator[
+        np.newaxis, np.newaxis, :, :
+    ]
+
+    radius_px = params["radius_px"]
+    center_px = params["centre_px"]
+    x1 = center_px[0] - radius_px
+    x2 = center_px[0] + radius_px
+    y1 = center_px[1] - radius_px
+    y2 = center_px[1] + radius_px
+
+    # if params.get("crop") is not None:
+    #     x1, x2, y1, y2 = params["crop"]
+    data = data[y1:y2, x1:x2, :, :]
 
     if params.get("binning") is not None:
         data = photoelastimetry.io.bin_image(data, params["binning"])
@@ -33,7 +56,7 @@ def prepare_experimental_data(params):
     if data.ndim != 4 or data.shape[2] != 3 or data.shape[3] != 4:
         raise ValueError(f"Expected image data with shape [H, W, 3, 4]. Got {data.shape}.")
 
-    return data.astype(float)
+    return data
 
 
 def parse_angle_order(order):
@@ -98,15 +121,24 @@ def generate_fake_data(params, shape):
 
 
 def plot_comparison(experimental_stokes, fake_stokes, output_filename):
+    errors = [
+        (
+            experimental_stokes[colour_index][0] - fake_stokes[colour_index][0],
+            experimental_stokes[colour_index][1] - fake_stokes[colour_index][1],
+        )
+        for colour_index in range(3)
+    ]
     colour_names = ["red", "green", "blue"]
     column_specs = [
         ("experimental S1/S0", 0, experimental_stokes),
         ("fake S1/S0", 0, fake_stokes),
+        ("error in S1/S0", 0, errors),
         ("experimental S2/S0", 1, experimental_stokes),
         ("fake S2/S0", 1, fake_stokes),
+        ("error in S2/S0", 1, errors),
     ]
 
-    fig, axes = plt.subplots(3, 4, figsize=(14, 9), layout="constrained")
+    fig, axes = plt.subplots(3, 6, figsize=(14, 9), layout="constrained")
     last_image = None
 
     for row, colour_name in enumerate(colour_names):

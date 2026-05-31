@@ -31,6 +31,35 @@ def _load_array(path):
     return data
 
 
+def _apply_direct_blank_dark_correction(data, params):
+    has_blank_roi = "blank_roi" in params
+    has_dark_field = "dark_field" in params
+
+    if not has_blank_roi and not has_dark_field:
+        return data
+
+    if not has_blank_roi or not has_dark_field:
+        raise ValueError("Direct blank correction requires both 'blank_roi' and 'dark_field'.")
+
+    if np.asarray(data).ndim != 4:
+        raise ValueError(
+            f"Direct blank correction expects image data with shape [H, W, C, 4], got {data.shape}."
+        )
+
+    x1, x2, y1, y2 = [int(value) for value in params["blank_roi"]]
+    height, width = data.shape[:2]
+    if x1 < 0 or y1 < 0 or x2 > width or y2 > height or x1 >= x2 or y1 >= y2:
+        raise ValueError(
+            "blank_roi must be [x1, x2, y1, y2] within the input image bounds. "
+            f"Got {params['blank_roi']} for image shape {data.shape}."
+        )
+
+    dark_field = _load_array(params["dark_field"])
+    blank_frame = data[y1:y2, x1:x2, :, :]
+    blank_correction = photoelastimetry.calibrate.compute_blank_correction(dark_field, blank_frame)
+    return photoelastimetry.calibrate.apply_blank_correction(data, blank_correction)
+
+
 def _merge_params_with_calibration(params, fallback_params=None):
     """
     Merge params with optional fallback and calibration profile values.
@@ -88,6 +117,8 @@ def image_to_stress(params, output_filename=None):
     Args:
         params (dict): Configuration dictionary containing:
             - input_filename (str, optional): Path to input image file. If None, raw images are loaded from folderName.
+            - dark_field (str, optional): Path to dark reference stack for direct blank correction.
+            - blank_roi (list, optional): ROI [x1, x2, y1, y2] used as blank response in input image.
             - folderName (str): Path to folder containing raw photoelastic images
             - crop (list, optional): Crop region as [x1, x2, y1, y2]
             - debug (bool): If True, display all channels for debugging
@@ -124,7 +155,9 @@ def image_to_stress(params, output_filename=None):
         raise ValueError("Either 'folderName' or 'input_filename' must be specified in params.")
 
     profile = params.get("_calibration_profile")
-    if profile is not None:
+    if "blank_roi" in params or "dark_field" in params:
+        data = _apply_direct_blank_dark_correction(data, params)
+    elif profile is not None:
         data = photoelastimetry.calibrate.apply_blank_correction(data, profile["blank_correction"])
 
     if params.get("crop") is not None:
@@ -214,7 +247,11 @@ def image_to_stress(params, output_filename=None):
         sigma_max=sigma_max,
         n_max=n_max,
         correction_params=correction_params,
+        debug=params.get("debug", False),
     )
+
+    if "seed_filename" in params:
+        photoelastimetry.io.save_image(params["seed_filename"], seed.to_stress_map(K=0.5), metadata)
 
     H, W = data.shape[:2]
 

@@ -162,10 +162,15 @@ def compute_blank_correction(dark_frame, blank_frame, eps=1e-6):
     dark = np.asarray(dark_frame, dtype=float)
     blank = np.asarray(blank_frame, dtype=float)
 
-    if dark.shape != blank.shape:
-        raise ValueError(f"Dark and blank frame shapes must match. Got {dark.shape} and {blank.shape}.")
-    if dark.ndim != 4 or dark.shape[-1] != 4:
-        raise ValueError(f"Blank correction frames must have shape [H, W, C, 4], got {dark.shape}.")
+    if dark.ndim != 4 or blank.ndim != 4 or dark.shape[-1] != 4 or blank.shape[-1] != 4:
+        raise ValueError(
+            "Blank correction frames must have shape [H, W, C, 4], " f"got {dark.shape} and {blank.shape}."
+        )
+    if dark.shape[2:] != blank.shape[2:]:
+        raise ValueError(
+            "Dark and blank frame colour/polariser dimensions must match. "
+            f"Got {dark.shape} and {blank.shape}."
+        )
 
     offset = np.median(dark, axis=(0, 1))
     denom = np.median(blank, axis=(0, 1)) - offset

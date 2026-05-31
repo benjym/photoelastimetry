@@ -1,17 +1,28 @@
 {
     // Incoming normalized Stokes vector [S1_hat, S2_hat, S3_hat]
     S_i_hat : [0.0, 0.0, 1.0], // Incoming polarization state
-    binning: 8,
-    crop : [865, 1585, 411, 971], //  Crop region as [x1, x2, y1, y2]
+    binning: 1,
+    // centre_px: [1220, 681], // Center of disk in pixel coordinates [cx, cy]
+    // radius_px: 320, // Radius of disk in pixels
+    crop : [900, 1540, 361, 1001], // [x0, x1, y0, y1] defining a rectangular crop region around the disk
+    blank_roi: [430, 530, 680, 810], // [x0, x1, y0, y1] defining a rectangular region of interest for estimating the blank field
     wavelengths : [650, 550, 450], // R, G, B wavelengths (nm)
-    C : [3e-10,3e-10,3e-10], // stress-optic coefficient for each wavelength (1/Pa)
+    C : [
+        4.883208710592795e-10,
+        4.392682868987751e-10,
+        3.947835185902093e-10,
+    ],
     thickness : 0.01, // thickness of sample in m
     polarisation_efficiency : 0.95,
     load : 200, // load in N
     input_filename : "/Users/bmar5496/Desktop/disk/no_room_light_20260529_022832/time_average.tiff",
     dark_field : "/Users/bmar5496/Desktop/disk/dark_20260529_022718/time_average.tiff",
-    output_filename : "images/disk2/predicted_stress_map.png",
-    debug: false,
+    output_filename : "images/disk2/predicted_stress_map.tiff",
+    seed_filename : "images/disk2/seed_stress_map.tiff",
+    debug: true,
     knot_spacing: 8,
-    max_iterations: 100
+    max_iterations: 100,
+    seeding : {
+        n_max : 1
+    },
 }
