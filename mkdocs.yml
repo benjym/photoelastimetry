@@ -75,6 +75,7 @@ nav:
       - Quickstart: user/quickstart.md
       - Workflows:
           - image-to-stress: user/workflows/image-to-stress.md
+          - image-to-retardation: user/workflows/image-to-retardation.md
           - stress-to-image: user/workflows/stress-to-image.md
           - demosaic-raw: user/workflows/demosaic-raw.md
           - calibrate-photoelastimetry: user/workflows/calibration.md

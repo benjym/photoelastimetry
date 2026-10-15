@@ -38,6 +38,7 @@ docs = [
 ]
 
 [project.scripts]
+image-to-retardation = "photoelastimetry.quick:cli_image_to_retardation"
 image-to-stress = "photoelastimetry.main:cli_image_to_stress"
 stress-to-image = "photoelastimetry.main:cli_stress_to_image"
 demosaic-raw = "photoelastimetry.main:cli_demosaic"

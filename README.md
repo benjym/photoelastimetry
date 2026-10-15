@@ -17,11 +17,23 @@ pip install photoelastimetry
 ## CLI Tools
 
 - `image-to-stress`
+- `image-to-retardation` (quick first-branch optical inversion)
 - `stress-to-image`
 - `demosaic-raw`
 - `calibrate-photoelastimetry`
 
 Run `--help` on each command for usage.
+
+For a quick retardation/direction map without stress fitting or fringe resolution:
+
+```bash
+image-to-retardation image.tiff --input-stokes 0 0 1
+image-to-retardation image.tiff --bright-field bright.tiff --dark-field dark.tiff --format png
+```
+
+Defaults to linear illumination (`--input-stokes 1 0 0`) and float TIFF output
+in radians. PNGs are fixed-scale previews, one per colour and quantity.
+See [input layouts, branch assumptions and field correction](docs/user/workflows/image-to-retardation.md).
 
 ## Documentation
 
