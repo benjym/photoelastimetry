@@ -59,13 +59,13 @@ def test_invalid_pixels_and_isoclinics():
     data[0, 1, 0, 0] = np.nan
     data[0, 2, 0, 0] = -1
     data[0, 3] = intensities(0.0, 0.6, [1, 0, 0])
-    delta, theta = first_period_inversion(data)
+    delta, theta = first_period_inversion(data, [1, 0, 0])
     assert np.isnan(delta[0, :4]).all()
     assert np.isnan(theta[0, :4]).all()
     assert np.isfinite(delta[0, 4]).all()
     bright = np.ones_like(data)
     bright[0, 4, 0, 1] = 0
-    delta, _ = first_period_inversion(data, bright_field=bright)
+    delta, _ = first_period_inversion(data, [1, 0, 0], bright_field=bright)
     assert np.isnan(delta).all()
 
 
@@ -77,7 +77,7 @@ def test_bad_source(source):
 
 def test_circular_zero_retardation_has_undefined_direction():
     data = np.full((2, 3, 1, 4), 0.5)
-    delta, theta = first_period_inversion(data, [0, 0, 1])
+    delta, theta = first_period_inversion(data)
     np.testing.assert_array_equal(delta, 0)
     assert np.isnan(theta).all()
 
@@ -105,10 +105,6 @@ def test_cli_tiff_and_png(tmp_path, monkeypatch):
             str(tmp_path / "sample.tiff"),
             "-o",
             str(prefix),
-            "--input-stokes",
-            "0",
-            "0",
-            "1",
             "--bright-field",
             str(tmp_path / "bright.tiff"),
             "--dark-field",
@@ -140,5 +136,5 @@ def test_monochrome_and_raw_mosaic(tmp_path):
         for dr, dc, angle in [(0, 0, 0), (1, 0, 1), (1, 1, 2), (0, 1, 3)]:
             mosaic[row + dr :: 4, col + dc :: 4] = mono[..., angle]
     save_image(str(tmp_path / "raw.tiff"), mosaic)
-    result, _ = image_to_retardation(tmp_path / "raw.tiff", input_stokes=[0, 0, 1], raw_mosaic=True)
+    result, _ = image_to_retardation(tmp_path / "raw.tiff", raw_mosaic=True)
     np.testing.assert_allclose(result, 0.6, atol=1e-6)

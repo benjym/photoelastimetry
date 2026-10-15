@@ -26,7 +26,8 @@ Raw `.raw` frames are demosaiced automatically and need the usual adjacent
 `recordingMetadata.json`. Raw recording directories are also accepted.
 
 `--input-stokes S1 S2 S3` specifies ideal, fully polarised illumination. The default
-is linear `[1, 0, 0]`; use `[0, 0, 1]` or `[0, 0, -1]` for circular light.
+is circular `[0, 0, 1]`; use `[0, 0, -1]` for the opposite handedness
+or `[1, 0, 0]` for linear light.
 Other linear orientations are supported; mixed elliptical and partially polarised
 states are rejected.
 

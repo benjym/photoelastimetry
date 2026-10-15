@@ -22,7 +22,7 @@ def _stack(data, raw_mosaic=False):
     return data
 
 
-def first_period_inversion(data, input_stokes=(1.0, 0.0, 0.0), bright_field=None, dark_field=None):
+def first_period_inversion(data, input_stokes=(0.0, 0.0, 1.0), bright_field=None, dark_field=None):
     """Return per-colour retardance and direction, both [H, W, C] in radians.
 
     Accept ideal fully polarised linear or circular illumination. Retardance uses
@@ -82,7 +82,7 @@ def image_to_retardation(
     input_filename,
     output_prefix=None,
     output_format="tiff",
-    input_stokes=(1, 0, 0),
+    input_stokes=(0, 0, 1),
     bright_field=None,
     dark_field=None,
     raw_mosaic=False,
@@ -143,9 +143,9 @@ def cli_image_to_retardation():
         "--input-stokes",
         nargs=3,
         type=float,
-        default=(1, 0, 0),
+        default=(0, 0, 1),
         metavar=("S1", "S2", "S3"),
-        help="Ideal illumination state; default: 1 0 0 (linear). Circular: 0 0 1",
+        help="Ideal illumination state; default: 0 0 1 (circular). Linear: 1 0 0",
     )
     parser.add_argument(
         "--bright-field", help="Uniform unpolarised flat-field image, matching the input shape"
