@@ -14,7 +14,6 @@ from photoelastimetry.calibrate import (
 from photoelastimetry.generate.disk import diametrical_stress_cartesian
 from photoelastimetry.image import simulate_four_step_polarimetry
 
-
 # ---------------------------------------------------------------------------
 # Helper: synthetic multi-fringe Brazilian disk dataset
 # ---------------------------------------------------------------------------
@@ -75,10 +74,7 @@ def _make_dispersion_case(tmp_path, alpha_true=0.8, lambda_ref=550e-9):
             "edge_margin_fraction": 0.8,
             "contact_exclusion_fraction": 0.35,
         },
-        "load_steps": [
-            {"load": float(load), "image_file": f}
-            for load, f in zip(loads, image_files)
-        ],
+        "load_steps": [{"load": float(load), "image_file": f} for load, f in zip(loads, image_files)],
         "fit": {
             "max_points": 2000,
             "seed": 42,

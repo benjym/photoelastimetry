@@ -1037,8 +1037,7 @@ def _get_dispersion_fn(model_name):
     """Return dispersion callable by name."""
     if model_name not in _DISPERSION_MODELS:
         raise ValueError(
-            f"Unknown dispersion model '{model_name}'. "
-            f"Choose from: {sorted(_DISPERSION_MODELS)}."
+            f"Unknown dispersion model '{model_name}'. " f"Choose from: {sorted(_DISPERSION_MODELS)}."
         )
     return _DISPERSION_MODELS[model_name]
 
@@ -1134,7 +1133,7 @@ def fit_dispersion_parameters(dataset, initial_C, fit_config):
 
         # Estimate initial alpha by log-linear fit to initial_C shape.
         log_scale = np.log(lambda_ref / wavelengths)  # [n_channels]
-        log_ratio = np.log(initial_C / c_ref_init)    # [n_channels]
+        log_ratio = np.log(initial_C / c_ref_init)  # [n_channels]
         nonzero = np.abs(log_scale) > 1e-10
         alpha_init = float(np.median(log_ratio[nonzero] / log_scale[nonzero])) if np.any(nonzero) else 0.0
 
@@ -1156,7 +1155,11 @@ def fit_dispersion_parameters(dataset, initial_C, fit_config):
         inv_ref_sq = 1.0 / lambda_ref**2
         inv_diff = 1.0 / wavelengths**2 - inv_ref_sq  # [n_channels]
         nonzero_d = np.abs(inv_diff) > 1e-6
-        dB_init = float(np.median((initial_C[nonzero_d] - c_ref_init) / inv_diff[nonzero_d])) if np.any(nonzero_d) else 0.0
+        dB_init = (
+            float(np.median((initial_C[nonzero_d] - c_ref_init) / inv_diff[nonzero_d]))
+            if np.any(nonzero_d)
+            else 0.0
+        )
 
         x0 = np.array([c_ref_init, dB_init])
         # Compute dB bounds so C(λ) ≥ 0.01*C_ref for every channel.
@@ -1165,7 +1168,9 @@ def fit_dispersion_parameters(dataset, initial_C, fit_config):
         pos_mask = inv_diff > 0
         neg_mask = inv_diff < 0
         dB_lower = float(-0.99 * c_ref_init / np.max(inv_diff[pos_mask])) if np.any(pos_mask) else -1e-18
-        dB_upper = float(0.99 * c_ref_init / np.max(np.abs(inv_diff[neg_mask]))) if np.any(neg_mask) else 1e-18
+        dB_upper = (
+            float(0.99 * c_ref_init / np.max(np.abs(inv_diff[neg_mask]))) if np.any(neg_mask) else 1e-18
+        )
         bounds_lower = [1e-15, dB_lower]
         bounds_upper = [1e-4, dB_upper]
 
@@ -1173,9 +1178,7 @@ def fit_dispersion_parameters(dataset, initial_C, fit_config):
             return p[0] + p[1] * (1.0 / wl**2 - inv_ref_sq)
 
     else:
-        raise ValueError(
-            f"Unknown dispersion model '{model_name}'. Choose 'power_law' or 'cauchy'."
-        )
+        raise ValueError(f"Unknown dispersion model '{model_name}'. Choose 'power_law' or 'cauchy'.")
 
     result = least_squares(
         _dispersion_residuals,
