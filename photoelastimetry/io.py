@@ -1,6 +1,8 @@
 import json
 import os
+import warnings
 from glob import glob
+from itertools import permutations
 
 import numpy as np
 import tifffile
@@ -253,6 +255,85 @@ def save_image(filename, data, metadata={}):
         )
 
 
+def _normalise_polarimetric_tiff(data, axes, filename):
+    """Resolve RGB/four-analyser TIFFs to YXCA, warning on shape inference."""
+    axes = axes or ""
+    # Extra singleton frame/depth dimensions are common in exported stacks.
+    if data.ndim > 4:
+        singleton = tuple(
+            i
+            for i, size in enumerate(data.shape)
+            if size == 1 and (len(axes) != data.ndim or axes[i] not in "YX")
+        )
+        if singleton:
+            data = np.squeeze(data, axis=singleton)
+            axes = "".join(label for i, label in enumerate(axes) if i not in singleton)
+    if data.ndim != 4:
+        raise ValueError(
+            f"Cannot resolve polarimetric TIFF {filename}: shape {data.shape}, axes {axes!r}; "
+            "expected two spatial dimensions, 3 colours and 4 polarisation angles."
+        )
+
+    # These layouts have established angle-order conventions in this package.
+    known = {
+        "YXCA": (0, 1, 2, 3),
+        "IYXS": (1, 2, 3, 0),
+        "QYXS": (1, 2, 3, 0),
+        "TYXS": (1, 2, 3, 0),
+        "AYXS": (1, 2, 3, 0),
+        "CYXS": (1, 2, 3, 0),
+        "ISYX": (2, 3, 1, 0),
+        "QSYX": (2, 3, 1, 0),
+        "TCYX": (2, 3, 1, 0),
+        "ACYX": (2, 3, 1, 0),
+    }
+    order = known.get(axes)
+    if order is not None:
+        if (data.shape[order[2]], data.shape[order[3]]) != (3, 4):
+            raise ValueError(
+                f"TIFF {filename} has shape {data.shape} with axes {axes!r}; "
+                "expected 3 colours and 4 polarisation angles."
+            )
+    else:
+        labels = axes if len(axes) == 4 else "????"
+        y_axes = [i for i, label in enumerate(labels) if label == "Y"]
+        x_axes = [i for i, label in enumerate(labels) if label == "X"]
+        colour_axes = [i for i, label in enumerate(labels) if label in "CS" and data.shape[i] == 3]
+        angle_axes = [i for i, label in enumerate(labels) if label in "AT" and data.shape[i] == 4]
+        candidates = []
+        for y, x, colour, angle in permutations(range(4)):
+            if data.shape[colour] != 3 or data.shape[angle] != 4:
+                continue
+            if y_axes and y_axes != [y] or x_axes and x_axes != [x]:
+                continue
+            if colour_axes and colour_axes != [colour] or angle_axes and angle_axes != [angle]:
+                continue
+            # Without spatial labels, retain the stored order of the two spatial axes.
+            if not y_axes and not x_axes and y > x:
+                continue
+            candidates.append((y, x, colour, angle))
+        if len(candidates) != 1:
+            raise ValueError(
+                f"Cannot uniquely resolve TIFF {filename}: shape {data.shape}, axes {axes!r}. "
+                "Expected 3 colours and 4 polarisation angles; add explicit YXCA axis metadata "
+                "(or its stored permutation) to disambiguate the layout."
+            )
+        order = candidates[0]
+        if not (y_axes and x_axes and colour_axes and angle_axes):
+            warnings.warn(
+                f"Inferring polarimetric TIFF layout for {filename}: stored shape {data.shape}, "
+                f"axes {axes!r}; using source axes {order} as (Y, X, colour, polarisation). "
+                "Assuming 3 colours, 4 angles in file order (0, 45, 90, 135 degrees), "
+                "and preserving spatial order when Y/X labels are absent.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+    data = np.transpose(data, order)
+    if axes in {"ISYX", "QSYX"}:
+        data = data[..., [0, 3, 2, 1]]
+    return data
+
+
 def load_image(filename, metadata=None):
     """
     Load image data from a file in various formats.
@@ -320,25 +401,24 @@ def load_image(filename, metadata=None):
         data = plt.imread(filename)
     elif filename.endswith(".tiff") or filename.endswith(".tif"):
         with tifffile.TiffFile(filename) as tif:
-            data = tif.asarray()
-            axes = tif.series[0].axes.upper() if tif.series else None
+            if tif.series:
+                # Read the same series whose axis metadata we interpret. Some
+                # TIFFs squeeze singleton dimensions at the series level only.
+                series = tif.series[0]
+                data = series.asarray()
+                axes = series.axes.upper()
+            else:
+                data = tif.asarray()
+                axes = None
 
         # transpose data to [Y, X, C, A] format
         if data.ndim == 3:
-            if axes == "YXC":
+            if axes in {"YXC", "YXS"}:
                 pass  # already [Y, X, C]
             else:
                 data = np.transpose(data, (1, 2, 0))  # TCYX → [Y, X, C]
-        elif data.ndim == 4:
-            if axes == "YXCA":
-                pass  # already [Y, X, C, A]
-            elif axes == "CYXS":
-                data = np.transpose(data, (1, 2, 3, 0))  # CYXS → [Y, X, S, C]
-            elif axes in {"ISYX", "QSYX"}:
-                data = np.transpose(data, (2, 3, 1, 0))  # camera TIFF → [Y, X, C, A]
-                data = data[:, :, :, [0, 3, 2, 1]]
-            else:
-                data = np.transpose(data, (2, 3, 1, 0))  # TCYX → [Y, X, C, T]
+        elif data.ndim >= 4:
+            data = _normalise_polarimetric_tiff(data, axes, filename)
 
     else:
         raise ValueError(

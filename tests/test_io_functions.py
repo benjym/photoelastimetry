@@ -1,4 +1,5 @@
 import json
+from itertools import permutations
 from pathlib import Path
 
 import numpy as np
@@ -276,3 +277,79 @@ def test_save_and_load_unsupported_format_raises(tmp_path):
     bad.write_text("x")
     with pytest.raises(ValueError, match="Unsupported file format"):
         load_image(str(bad))
+
+
+@pytest.mark.parametrize("axes", ["IYXS", "QYXS", "TYXS", "AYXS"])
+def test_load_rgb_page_tiff_preserves_spatial_colour_and_angle_axes(tmp_path, axes):
+    import tifffile
+
+    # Deliberately distinct dimensions and values catch spatial/colour swaps,
+    # and preserve the file's canonical 0, 45, 90, 135 analyser order.
+    stored = np.arange(4 * 5 * 7 * 3, dtype=np.uint16).reshape(4, 5, 7, 3)
+    path = tmp_path / "rgb_pages.tiff"
+    tifffile.imwrite(path, stored, photometric="rgb", metadata={"axes": axes})
+    loaded, metadata = load_image(str(path))
+    assert loaded.shape == (5, 7, 3, 4)
+    assert metadata["height"] == 5
+    assert metadata["width"] == 7
+    np.testing.assert_array_equal(loaded, stored.transpose(1, 2, 3, 0))
+
+
+@pytest.mark.parametrize("stored_axes", ["".join(p) for p in permutations("YXCA")])
+def test_load_polarimetric_tiff_uses_explicit_axes_in_any_order(tmp_path, stored_axes):
+    import tifffile
+
+    canonical = np.arange(5 * 7 * 3 * 4, dtype=np.uint16).reshape(5, 7, 3, 4)
+    stored = canonical.transpose(tuple("YXCA".index(label) for label in stored_axes))
+    path = tmp_path / "permuted.tiff"
+    tifffile.imwrite(path, stored, photometric="minisblack", metadata={"axes": stored_axes})
+    loaded, _ = load_image(str(path))
+    np.testing.assert_array_equal(loaded, canonical)
+
+
+@pytest.mark.parametrize("stored_axes", ["ACYX", "CYXA", "YCAX", "YXCA"])
+def test_load_polarimetric_tiff_warns_when_inferring_shape(tmp_path, stored_axes):
+    import tifffile
+
+    canonical = np.arange(5 * 7 * 3 * 4, dtype=np.uint16).reshape(5, 7, 3, 4)
+    stored = canonical.transpose(tuple("YXCA".index(label) for label in stored_axes))
+    path = tmp_path / "unlabelled.tiff"
+    tifffile.imwrite(path, stored, photometric="minisblack", metadata={"axes": "QQQQ"})
+    with pytest.warns(RuntimeWarning, match="Inferring polarimetric TIFF layout.*stored shape.*source axes"):
+        loaded, _ = load_image(str(path))
+    np.testing.assert_array_equal(loaded, canonical)
+
+
+def test_load_polarimetric_tiff_warns_for_unknown_page_axes(tmp_path):
+    import tifffile
+
+    stored = np.arange(4 * 3 * 5 * 7, dtype=np.uint16).reshape(4, 3, 5, 7)
+    path = tmp_path / "unknown_pages.tiff"
+    tifffile.imwrite(path, stored, photometric="minisblack", metadata={"axes": "QQYX"})
+    with pytest.warns(RuntimeWarning, match="Inferring polarimetric TIFF layout"):
+        loaded, _ = load_image(str(path))
+    np.testing.assert_array_equal(loaded, stored.transpose(2, 3, 1, 0))
+
+
+@pytest.mark.parametrize("shape", [(4, 3, 3, 5), (4, 3, 4, 5), (2, 5, 6, 7)])
+def test_load_polarimetric_tiff_rejects_ambiguous_or_incompatible_shape(tmp_path, shape):
+    import tifffile
+
+    path = tmp_path / "ambiguous.tiff"
+    tifffile.imwrite(
+        path, np.zeros(shape, dtype=np.uint16), photometric="minisblack", metadata={"axes": "QQQQ"}
+    )
+    with pytest.raises(ValueError, match="Cannot uniquely resolve TIFF"):
+        load_image(str(path))
+
+
+def test_load_polarimetric_tiff_removes_singleton_depth(tmp_path):
+    import tifffile
+
+    canonical = np.arange(5 * 7 * 3 * 4, dtype=np.uint16).reshape(5, 7, 3, 4)
+    path = tmp_path / "depth.tiff"
+    tifffile.imwrite(
+        path, canonical.transpose(3, 2, 0, 1)[:, None], photometric="minisblack", metadata={"axes": "TZCYX"}
+    )
+    loaded, _ = load_image(str(path))
+    np.testing.assert_array_equal(loaded, canonical)

@@ -17,9 +17,26 @@ Run from a source checkout without reinstalling with
 
 Use a TIFF produced by `demosaic-raw` or `stress-to-image`, or a NumPy array
 with shape `[H, W, C, 4]`. The final axis must be ordered **0°, 45°, 90°, 135°**.
-Monochrome arrays shaped `[H, W, 4]` are also accepted. TIFFs use the existing
-package loader and its camera channel-order conventions. An ordinary RGB or
-greyscale photograph does not contain the four analyser measurements needed.
+Monochrome NumPy arrays shaped `[H, W, 4]` are also accepted. For polarimetric
+TIFF stacks, the loader assumes **3 colours and 4 polarisation angles** and
+normalises the stored layout to `[H, W, 3, 4]`:
+
+- Explicit spatial, colour/sample and angle/time axis metadata determines the
+  mapping, including arbitrary permutations of `YXCA`.
+- Common RGB-page, planar camera and ImageJ layouts are recognised directly.
+  Singleton depth/frame dimensions are removed.
+- With missing or incomplete axis metadata, the loader infers colour and angle
+  axes from their lengths (3 and 4), retaining spatial order where Y/X labels
+  are absent. **Every shape-based inference emits a terminal warning** naming
+  the file, stored axes/shape and selected mapping.
+- Ambiguous or incompatible layouts raise a clear error asking for explicit
+  axis metadata rather than silently transposing the wrong dimensions.
+
+Angle order cannot be inferred from shape. File order is assumed to be
+0°, 45°, 90°, 135°, except for the existing planar camera `ISYX`/`QSYX`
+convention (0°, 135°, 90°, 45°), which is reordered automatically.
+An ordinary RGB or greyscale photograph does not contain the four analyser
+measurements needed.
 
 Use `--raw-mosaic` for 2D TIFF/NPY sensor mosaics with the package's 4×4 pattern.
 Raw `.raw` frames are demosaiced automatically and need the usual adjacent

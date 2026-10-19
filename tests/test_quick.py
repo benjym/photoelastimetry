@@ -4,6 +4,7 @@ import sys
 
 import numpy as np
 import pytest
+import tifffile
 from matplotlib.image import imread
 
 from photoelastimetry.image import mueller_matrix
@@ -90,12 +91,28 @@ def test_bad_layout_and_references():
             first_period_inversion(np.ones((4, 5, 1, 4)), **{name: np.ones((2, 3, 1, 4))})
 
 
-def test_cli_tiff_and_png(tmp_path, monkeypatch):
+@pytest.mark.parametrize("layout", ["TCYX", "IYXS"])
+def test_cli_tiff_and_png(tmp_path, monkeypatch, layout):
     shape = (2, 5, 3)
     ideal = intensities(np.full(shape, 0.4), np.full(shape, 0.7), [0, 0, 1])
-    save_image(str(tmp_path / "sample.tiff"), ideal * 100 + 10)
-    save_image(str(tmp_path / "bright.tiff"), np.full_like(ideal, 110))
-    save_image(str(tmp_path / "dark.tiff"), np.full_like(ideal, 10))
+
+    def save_input(name, values):
+        path = tmp_path / name
+        if layout == "IYXS":
+            tifffile.imwrite(
+                path,
+                values.transpose(3, 0, 1, 2).astype(np.float32),
+                photometric="rgb",
+                metadata={"axes": layout},
+            )
+            with tifffile.TiffFile(path) as tif:
+                assert tif.series[0].axes == layout
+        else:
+            save_image(str(path), values)
+
+    save_input("sample.tiff", ideal * 100 + 10)
+    save_input("bright.tiff", np.full_like(ideal, 110))
+    save_input("dark.tiff", np.full_like(ideal, 10))
     prefix = tmp_path / "output" / "map"
     monkeypatch.setattr(
         sys,
@@ -125,6 +142,7 @@ def test_cli_tiff_and_png(tmp_path, monkeypatch):
             pixels = imread(f"{prefix}_{name}_c{channel}.png")
             np.testing.assert_allclose(pixels[..., 0], expected, atol=1 / 255)
     assert delta.shape == theta.shape == shape
+    assert len(list(prefix.parent.glob("*.png"))) == 6
 
 
 def test_monochrome_and_raw_mosaic(tmp_path):
